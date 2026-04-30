@@ -255,6 +255,7 @@
         <button data-species="0" title="Sky" style="background: hsl(207, 80%, 65%);"></button>
         <button data-species="1" title="Sun" style="background: hsl(35, 85%, 60%);"></button>
         <button data-species="2" title="Lime" style="background: hsl(115, 65%, 58%);"></button>
+        <button data-species="3" title="Crimson (predator)" style="background: hsl(354, 75%, 50%);"></button>
       </div>
     </div>
   </div>
@@ -326,6 +327,11 @@
       <span class="label">Lime</span>
       <span class="value" id="stats-2">60</span>
     </div>
+    <div class="stats-row">
+      <span class="stats-dot" style="background: hsl(354, 75%, 50%);"></span>
+      <span class="label">Crimson</span>
+      <span class="value" id="stats-3">5</span>
+    </div>
     <div class="stats-row stats-divider">
       <span class="label">FPS</span>
       <span class="value" id="stats-fps">60</span>
@@ -355,14 +361,15 @@
     resize();
 
     const SPECIES = [
-      { name: 'Sky',  hueMin: 195, hueMax: 220, centerHue: 207 },
-      { name: 'Sun',  hueMin: 25,  hueMax: 45,  centerHue: 35 },
-      { name: 'Lime', hueMin: 105, hueMax: 125, centerHue: 115 },
+      { name: 'Sky',     hueMin: 195, hueMax: 220, centerHue: 207 },
+      { name: 'Sun',     hueMin: 25,  hueMax: 45,  centerHue: 35 },
+      { name: 'Lime',    hueMin: 105, hueMax: 125, centerHue: 115 },
+      { name: 'Crimson', hueMin: 350, hueMax: 358, centerHue: 354 },
     ];
-    const SPECIES_LIGHT = [65, 60, 58];
-    const SPECIES_SAT = [80, 85, 65];
+    const SPECIES_LIGHT = [65, 60, 58, 50];
+    const SPECIES_SAT = [80, 85, 65, 80];
+    const PREDATOR_SPECIES = 3;
 
-    const NUM_BOIDS = 180;
     let VISUAL_RANGE = 150;
     const PROTECTED_RANGE = 18;
     let DIFF_SPECIES_RANGE = 38;
@@ -370,8 +377,14 @@
       { maxSpeed: 2.8, minSpeed: 1.4, alignFactor: 0.030, cohesionFactor: 0.0005,  separationFactor: 0.50, turnFactor: 0.15 },
       { maxSpeed: 4.0, minSpeed: 2.0, alignFactor: 0.010, cohesionFactor: 0.00012, separationFactor: 0.80, turnFactor: 0.22 },
       { maxSpeed: 1.5, minSpeed: 0.8, alignFactor: 0.080, cohesionFactor: 0.0016,  separationFactor: 0.30, turnFactor: 0.10 },
+      { maxSpeed: 2.5, minSpeed: 1.2, alignFactor: 0.020, cohesionFactor: 0.00010, separationFactor: 0.50, turnFactor: 0.18 },
     ];
     const DIFF_SPECIES_FACTOR = 0.5;
+    const PURSUE_FORCE = 0.05;
+    const FLEE_FORCE = 0.10;
+    const CATCH_RADIUS = 18;
+    const SATIETY_DURATION = 600;
+    const SPECIES_INITIAL = [60, 60, 60, 5];
     const EDGE_MARGIN = 90;
 
     let LOOK_AHEAD = 45;
@@ -420,14 +433,18 @@
         vy: Math.sin(angle) * speed,
         species,
         hue,
+        satiated: 0,
       });
     }
-    for (let i = 0; i < NUM_BOIDS; i++) {
-      spawnBoid(Math.random() * viewW(), Math.random() * viewH(), 0, i % SPECIES.length);
+    for (let s = 0; s < SPECIES.length; s++) {
+      for (let i = 0; i < SPECIES_INITIAL[s]; i++) {
+        spawnBoid(Math.random() * viewW(), Math.random() * viewH(), 0, s);
+      }
     }
 
     function addBoidsAt(x, y, count) {
-      for (let i = 0; i < count; i++) spawnBoid(x, y, ADD_BRUSH_RADIUS, activeSpecies);
+      const actual = activeSpecies === PREDATOR_SPECIES ? 1 : count;
+      for (let i = 0; i < actual; i++) spawnBoid(x, y, ADD_BRUSH_RADIUS, activeSpecies);
     }
     function removeBoidsAt(x, y) {
       const rSq = REMOVE_BRUSH_RADIUS * REMOVE_BRUSH_RADIUS;
@@ -617,6 +634,7 @@
       0:     document.getElementById('stats-0'),
       1:     document.getElementById('stats-1'),
       2:     document.getElementById('stats-2'),
+      3:     document.getElementById('stats-3'),
       fps:   document.getElementById('stats-fps'),
     };
     let fpsLastTime = performance.now();
@@ -626,12 +644,13 @@
     function updateStats(now) {
       if (now - statsLastUpdate < 250) return;
       statsLastUpdate = now;
-      const counts = [0, 0, 0];
+      const counts = [0, 0, 0, 0];
       for (const b of boids) counts[b.species]++;
       statsEls.total.textContent = boids.length;
       statsEls[0].textContent = counts[0];
       statsEls[1].textContent = counts[1];
       statsEls[2].textContent = counts[2];
+      statsEls[3].textContent = counts[3];
       statsEls.fps.textContent = fpsValue;
     }
 
@@ -642,10 +661,14 @@
       const diffSq = DIFF_SPECIES_RANGE * DIFF_SPECIES_RANGE;
       for (const b of boids) {
         const p = SPECIES_PARAMS[b.species];
+        const isPredator = b.species === PREDATOR_SPECIES;
         let closeDx = 0, closeDy = 0;
         let avgVx = 0, avgVy = 0;
         let avgX = 0, avgY = 0;
         let neighbors = 0;
+        let nearestPreyDx = 0, nearestPreyDy = 0, nearestPreyDistSq = visualSq;
+        let nearestPreyFound = false;
+        let fleeX = 0, fleeY = 0, fleeCount = 0;
 
         for (const other of boids) {
           if (other === b) continue;
@@ -653,6 +676,7 @@
           const dy = b.y - other.y;
           const distSq = dx * dx + dy * dy;
           const sameSpecies = other.species === b.species;
+          const otherIsPredator = other.species === PREDATOR_SPECIES;
 
           if (sameSpecies) {
             if (distSq < protectedSq) {
@@ -667,6 +691,23 @@
               avgY += other.y;
               neighbors++;
             }
+          } else if (isPredator !== otherIsPredator) {
+            if (distSq < visualSq) {
+              if (isPredator) {
+                if (b.satiated <= 0 && distSq < nearestPreyDistSq) {
+                  nearestPreyDistSq = distSq;
+                  nearestPreyDx = dx;
+                  nearestPreyDy = dy;
+                  nearestPreyFound = true;
+                }
+              } else {
+                const dist = Math.sqrt(distSq) || 0.01;
+                const fleeStrength = VISUAL_RANGE / Math.max(dist, 25);
+                fleeX += (dx / dist) * fleeStrength;
+                fleeY += (dy / dist) * fleeStrength;
+                fleeCount++;
+              }
+            }
           } else if (distSq < diffSq) {
             const dist = Math.sqrt(distSq) || 0.01;
             const falloff = 1 - dist / DIFF_SPECIES_RANGE;
@@ -680,11 +721,22 @@
           avgVy /= neighbors;
           avgX /= neighbors;
           avgY /= neighbors;
-          b.vx += (avgVx - b.vx) * p.alignFactor + (avgX - b.x) * p.cohesionFactor;
-          b.vy += (avgVy - b.vy) * p.alignFactor + (avgY - b.y) * p.cohesionFactor;
+          const cohScale = fleeCount > 0 ? 0.25 : 1;
+          b.vx += (avgVx - b.vx) * p.alignFactor + (avgX - b.x) * p.cohesionFactor * cohScale;
+          b.vy += (avgVy - b.vy) * p.alignFactor + (avgY - b.y) * p.cohesionFactor * cohScale;
         }
         b.vx += closeDx * p.separationFactor;
         b.vy += closeDy * p.separationFactor;
+
+        if (nearestPreyFound) {
+          const dist = Math.sqrt(nearestPreyDistSq) || 0.01;
+          b.vx += (-nearestPreyDx / dist) * PURSUE_FORCE;
+          b.vy += (-nearestPreyDy / dist) * PURSUE_FORCE;
+        }
+        if (fleeCount > 0) {
+          b.vx += fleeX * FLEE_FORCE;
+          b.vy += fleeY * FLEE_FORCE;
+        }
 
         if (obstacles.length > 0) {
           let avoidFx = 0, avoidFy = 0;
@@ -745,6 +797,37 @@
 
         b.x += b.vx;
         b.y += b.vy;
+        if (b.satiated > 0) b.satiated--;
+      }
+
+      const catchSq = CATCH_RADIUS * CATCH_RADIUS;
+      const toRemove = new Set();
+      for (let i = 0; i < boids.length; i++) {
+        const pred = boids[i];
+        if (pred.species !== PREDATOR_SPECIES) continue;
+        if (pred.satiated > 0) continue;
+        let bestIdx = -1;
+        let bestDistSq = catchSq;
+        for (let j = 0; j < boids.length; j++) {
+          if (i === j) continue;
+          if (boids[j].species === PREDATOR_SPECIES) continue;
+          if (toRemove.has(j)) continue;
+          const dx = pred.x - boids[j].x;
+          const dy = pred.y - boids[j].y;
+          const dSq = dx * dx + dy * dy;
+          if (dSq < bestDistSq) {
+            bestDistSq = dSq;
+            bestIdx = j;
+          }
+        }
+        if (bestIdx !== -1) {
+          toRemove.add(bestIdx);
+          pred.satiated = SATIETY_DURATION;
+        }
+      }
+      if (toRemove.size > 0) {
+        const sorted = [...toRemove].sort((a, b) => b - a);
+        for (const idx of sorted) boids.splice(idx, 1);
       }
     }
 
@@ -771,11 +854,11 @@
       const watched = [];
       const counts = new Array(SPECIES.length).fill(0);
       for (const b of boids) {
-        if (counts[b.species] < INSPECT_PER_SPECIES) {
+        const cap = b.species === PREDATOR_SPECIES ? Infinity : INSPECT_PER_SPECIES;
+        if (counts[b.species] < cap) {
           watched.push(b);
           counts[b.species]++;
         }
-        if (watched.length >= SPECIES.length * INSPECT_PER_SPECIES) break;
       }
 
       c.lineWidth = 1;
@@ -828,11 +911,56 @@
       c.beginPath();
       const diffSq = DIFF_SPECIES_RANGE * DIFF_SPECIES_RANGE;
       for (const b of watched) {
+        const bIsPred = b.species === PREDATOR_SPECIES;
         for (const other of boids) {
           if (other === b) continue;
           if (other.species === b.species) continue;
+          const otherIsPred = other.species === PREDATOR_SPECIES;
+          if (bIsPred !== otherIsPred) continue;
           const dx = b.x - other.x, dy = b.y - other.y;
           if (dx * dx + dy * dy < diffSq) {
+            c.moveTo(b.x, b.y);
+            c.lineTo(other.x, other.y);
+          }
+        }
+      }
+      c.stroke();
+      c.setLineDash([]);
+
+      c.strokeStyle = 'rgba(244, 63, 94, 0.95)';
+      c.lineWidth = 1.8;
+      for (const b of watched) {
+        if (b.species !== PREDATOR_SPECIES) continue;
+        if (b.satiated > 0) continue;
+        let target = null;
+        let targetDistSq = visualSq;
+        for (const other of boids) {
+          if (other.species === PREDATOR_SPECIES) continue;
+          const dx = b.x - other.x, dy = b.y - other.y;
+          const dSq = dx * dx + dy * dy;
+          if (dSq < targetDistSq) {
+            targetDistSq = dSq;
+            target = other;
+          }
+        }
+        if (target) {
+          c.beginPath();
+          c.moveTo(b.x, b.y);
+          c.lineTo(target.x, target.y);
+          c.stroke();
+        }
+      }
+
+      c.strokeStyle = 'rgba(244, 63, 94, 0.55)';
+      c.lineWidth = 1.0;
+      c.setLineDash([4, 4]);
+      c.beginPath();
+      for (const b of watched) {
+        if (b.species === PREDATOR_SPECIES) continue;
+        for (const other of boids) {
+          if (other.species !== PREDATOR_SPECIES) continue;
+          const dx = b.x - other.x, dy = b.y - other.y;
+          if (dx * dx + dy * dy < visualSq) {
             c.moveTo(b.x, b.y);
             c.lineTo(other.x, other.y);
           }
@@ -905,11 +1033,20 @@
         ctx.save();
         ctx.translate(b.x, b.y);
         ctx.rotate(angle);
-        ctx.fillStyle = `hsl(${b.hue}, ${SPECIES_SAT[b.species]}%, ${SPECIES_LIGHT[b.species]}%)`;
+        const fed = b.species === PREDATOR_SPECIES && b.satiated > 0;
+        const fedMult = fed ? 0.55 : 1;
+        ctx.fillStyle = `hsl(${b.hue}, ${SPECIES_SAT[b.species] * fedMult}%, ${SPECIES_LIGHT[b.species] * fedMult}%)`;
         ctx.beginPath();
-        ctx.moveTo(9, 0);
-        ctx.lineTo(-6, 5);
-        ctx.lineTo(-6, -5);
+        if (b.species === PREDATOR_SPECIES) {
+          ctx.moveTo(13, 0);
+          ctx.lineTo(-7, 7);
+          ctx.lineTo(-3, 0);
+          ctx.lineTo(-7, -7);
+        } else {
+          ctx.moveTo(9, 0);
+          ctx.lineTo(-6, 5);
+          ctx.lineTo(-6, -5);
+        }
         ctx.closePath();
         ctx.fill();
         ctx.restore();
