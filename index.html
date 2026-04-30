@@ -17,8 +17,14 @@
     }
     canvas {
       display: block;
+      position: absolute;
+      top: 0;
+      left: 0;
       width: 100vw;
       height: 100vh;
+    }
+    #overlay-canvas {
+      pointer-events: none;
     }
     .overlay {
       position: fixed;
@@ -39,6 +45,85 @@
       color: #fff;
     }
     .overlay p { margin: 0; color: #a1a1aa; line-height: 1.4; }
+
+    .settings {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      background: rgba(15, 17, 22, 0.85);
+      backdrop-filter: blur(6px);
+      padding: 0.6rem 0.85rem;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      color: #d4d4d8;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .settings label {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .settings input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 140px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 2px;
+      outline: none;
+    }
+    .settings input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      background: #7dd3fc;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    .settings input[type=range]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      background: #7dd3fc;
+      border-radius: 50%;
+      cursor: pointer;
+      border: none;
+    }
+    .settings .value {
+      min-width: 2rem;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      color: #fff;
+    }
+    .species-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .species-row .label {
+      color: #d4d4d8;
+    }
+    .species-picker {
+      display: flex;
+      gap: 0.35rem;
+    }
+    .species-picker button {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.15);
+      cursor: pointer;
+      padding: 0;
+      transition: border-color 0.15s, transform 0.05s;
+    }
+    .species-picker button:hover { transform: scale(1.1); }
+    .species-picker button.active {
+      border-color: #fff;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
+    }
 
     .toolbar {
       position: fixed;
@@ -78,6 +163,14 @@
       border-color: rgba(125, 211, 252, 0.55);
       color: #fff;
     }
+    .toolbar button[data-tool="add"].active {
+      background: rgba(134, 239, 172, 0.18);
+      border-color: rgba(134, 239, 172, 0.55);
+    }
+    .toolbar button[data-tool="remove"].active {
+      background: rgba(252, 165, 165, 0.18);
+      border-color: rgba(252, 165, 165, 0.55);
+    }
     .toolbar button[data-tool="inspect"].active {
       background: rgba(252, 211, 77, 0.18);
       border-color: rgba(252, 211, 77, 0.55);
@@ -92,9 +185,30 @@
 </head>
 <body>
   <canvas id="c"></canvas>
+  <canvas id="overlay-canvas"></canvas>
   <div class="overlay">
     <h1>Flocking simulation</h1>
-    <p>Each boid follows three local rules: separation, alignment, cohesion. Place obstacles, repel from your mouse, or toggle inspect to see what some boids are thinking.</p>
+    <p>Three species flock with their own kind and avoid the others. Place obstacles, brush boids in or out (target species set top-right), repel from your mouse, or toggle inspect.</p>
+  </div>
+  <div class="settings">
+    <label>
+      View range
+      <input type="range" id="visual-range" min="30" max="300" value="150" step="1">
+      <span class="value" id="visual-range-value">150</span>
+    </label>
+    <label>
+      Avoid range
+      <input type="range" id="avoid-range" min="20" max="300" value="38" step="1">
+      <span class="value" id="avoid-range-value">38</span>
+    </label>
+    <div class="species-row">
+      <span class="label">Species</span>
+      <div class="species-picker" id="species-picker">
+        <button data-species="0" title="Sky" style="background: hsl(207, 80%, 65%);"></button>
+        <button data-species="1" title="Sun" style="background: hsl(35, 85%, 60%);"></button>
+        <button data-species="2" title="Lime" style="background: hsl(115, 65%, 58%);"></button>
+      </div>
+    </div>
   </div>
   <div class="toolbar" id="toolbar">
     <button data-tool="circle" title="Place circle">
@@ -105,6 +219,17 @@
     </button>
     <button data-tool="triangle" title="Place triangle">
       <svg width="22" height="22" viewBox="-12 -12 24 24"><polygon points="0,-9 7.79,4.5 -7.79,4.5" fill="currentColor"/></svg>
+    </button>
+    <div class="sep"></div>
+    <button data-tool="add" title="Add boids of selected species (click or drag)">
+      <svg width="22" height="22" viewBox="-12 -12 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+        <path d="M 0 -7.5 L 0 7.5 M -7.5 0 L 7.5 0"/>
+      </svg>
+    </button>
+    <button data-tool="remove" title="Remove boids of selected species (click or drag)">
+      <svg width="22" height="22" viewBox="-12 -12 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+        <path d="M -7.5 0 L 7.5 0"/>
+      </svg>
     </button>
     <div class="sep"></div>
     <button data-tool="repel" title="Repel from mouse">
@@ -126,29 +251,44 @@
   <script>
     const canvas = document.getElementById('c');
     const ctx = canvas.getContext('2d');
+    const overlayCanvas = document.getElementById('overlay-canvas');
+    const overlayCtx = overlayCanvas.getContext('2d');
 
     function viewW() { return window.innerWidth; }
     function viewH() { return window.innerHeight; }
 
     function resize() {
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = viewW() * dpr;
-      canvas.height = viewH() * dpr;
-      canvas.style.width = viewW() + 'px';
-      canvas.style.height = viewH() + 'px';
+      for (const cv of [canvas, overlayCanvas]) {
+        cv.width = viewW() * dpr;
+        cv.height = viewH() * dpr;
+        cv.style.width = viewW() + 'px';
+        cv.style.height = viewH() + 'px';
+      }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      overlayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
     window.addEventListener('resize', resize);
     resize();
 
+    const SPECIES = [
+      { name: 'Sky',  hueMin: 195, hueMax: 220, centerHue: 207 },
+      { name: 'Sun',  hueMin: 25,  hueMax: 45,  centerHue: 35 },
+      { name: 'Lime', hueMin: 105, hueMax: 125, centerHue: 115 },
+    ];
+    const SPECIES_LIGHT = [65, 60, 58];
+    const SPECIES_SAT = [80, 85, 65];
+
     const NUM_BOIDS = 180;
-    const VISUAL_RANGE = 150;
+    let VISUAL_RANGE = 150;
     const PROTECTED_RANGE = 18;
-    const MAX_SPEED = 2.8;
-    const MIN_SPEED = 1.4;
-    const ALIGN_FACTOR = 0.04;
-    const COHESION_FACTOR = 0.0006;
-    const SEPARATION_FACTOR = 0.05;
+    let DIFF_SPECIES_RANGE = 38;
+    const SPECIES_PARAMS = [
+      { maxSpeed: 2.8, minSpeed: 1.4, alignFactor: 0.030, cohesionFactor: 0.0005, separationFactor: 0.5 },
+      { maxSpeed: 3.4, minSpeed: 1.8, alignFactor: 0.022, cohesionFactor: 0.0003, separationFactor: 0.6 },
+      { maxSpeed: 2.0, minSpeed: 1.0, alignFactor: 0.050, cohesionFactor: 0.0009, separationFactor: 0.4 },
+    ];
+    const DIFF_SPECIES_FACTOR = 0.5;
     const TURN_FACTOR = 0.15;
     const EDGE_MARGIN = 90;
 
@@ -161,25 +301,54 @@
     const MOUSE_REPEL_RANGE = 130;
     const MOUSE_REPEL_FORCE = 0.55;
 
+    const ADD_BRUSH_RADIUS = 22;
+    const REMOVE_BRUSH_RADIUS = 45;
+    const ADD_PER_CLICK = 5;
+    const ADD_PER_DRAG_TICK = 1;
+    const BRUSH_DRAG_INTERVAL = 70;
+
     const TRAIL_FADE = 0.10;
-    const INSPECT_EVERY = 30;
+    const INSPECT_PER_SPECIES = 2;
 
     let activeTool = null;
+    let activeSpecies = 0;
     let inspectOn = false;
     const obstacles = [];
-    const mouse = { x: null, y: null, over: false };
+    const mouse = { x: null, y: null, over: false, down: false };
+    let lastBrushAt = 0;
 
     const boids = [];
-    for (let i = 0; i < NUM_BOIDS; i++) {
+    function spawnBoid(x, y, spread, species) {
+      const p = SPECIES_PARAMS[species];
       const angle = Math.random() * Math.PI * 2;
-      const speed = MIN_SPEED + Math.random() * (MAX_SPEED - MIN_SPEED);
+      const speed = p.minSpeed + Math.random() * (p.maxSpeed - p.minSpeed);
+      const offR = Math.random() * spread;
+      const offA = Math.random() * Math.PI * 2;
+      const s = SPECIES[species];
+      const hue = s.hueMin + Math.random() * (s.hueMax - s.hueMin);
       boids.push({
-        x: Math.random() * viewW(),
-        y: Math.random() * viewH(),
+        x: x + Math.cos(offA) * offR,
+        y: y + Math.sin(offA) * offR,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        hue: 190 + Math.random() * 40,
+        species,
+        hue,
       });
+    }
+    for (let i = 0; i < NUM_BOIDS; i++) {
+      spawnBoid(Math.random() * viewW(), Math.random() * viewH(), 0, i % SPECIES.length);
+    }
+
+    function addBoidsAt(x, y, count) {
+      for (let i = 0; i < count; i++) spawnBoid(x, y, ADD_BRUSH_RADIUS, activeSpecies);
+    }
+    function removeBoidsAt(x, y) {
+      const rSq = REMOVE_BRUSH_RADIUS * REMOVE_BRUSH_RADIUS;
+      for (let i = boids.length - 1; i >= 0; i--) {
+        if (boids[i].species !== activeSpecies) continue;
+        const dx = boids[i].x - x, dy = boids[i].y - y;
+        if (dx * dx + dy * dy < rSq) boids.splice(i, 1);
+      }
     }
 
     function makeObstacle(type, x, y) {
@@ -238,23 +407,45 @@
       return [(gx / len) * strength, (gy / len) * strength];
     }
 
-    canvas.addEventListener('mousemove', (e) => {
+    function eventToCanvas(e) {
       const r = canvas.getBoundingClientRect();
-      mouse.x = e.clientX - r.left;
-      mouse.y = e.clientY - r.top;
-      mouse.over = true;
+      return [e.clientX - r.left, e.clientY - r.top];
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+      const [x, y] = eventToCanvas(e);
+      mouse.x = x; mouse.y = y; mouse.over = true;
+      if (mouse.down && (activeTool === 'add' || activeTool === 'remove')) {
+        const now = performance.now();
+        if (now - lastBrushAt >= BRUSH_DRAG_INTERVAL) {
+          lastBrushAt = now;
+          if (activeTool === 'add') addBoidsAt(x, y, ADD_PER_DRAG_TICK);
+          else removeBoidsAt(x, y);
+        }
+      }
     });
     canvas.addEventListener('mouseleave', () => { mouse.over = false; });
-    canvas.addEventListener('click', (e) => {
+    window.addEventListener('mouseup', () => { mouse.down = false; });
+
+    canvas.addEventListener('mousedown', (e) => {
       if (!activeTool || activeTool === 'repel') return;
-      const r = canvas.getBoundingClientRect();
-      const x = e.clientX - r.left;
-      const y = e.clientY - r.top;
-      obstacles.push(makeObstacle(activeTool, x, y));
+      const [x, y] = eventToCanvas(e);
+      if (activeTool === 'circle' || activeTool === 'square' || activeTool === 'triangle') {
+        obstacles.push(makeObstacle(activeTool, x, y));
+      } else if (activeTool === 'add') {
+        mouse.down = true;
+        addBoidsAt(x, y, ADD_PER_CLICK);
+        lastBrushAt = performance.now();
+      } else if (activeTool === 'remove') {
+        mouse.down = true;
+        removeBoidsAt(x, y);
+        lastBrushAt = performance.now();
+      }
     });
 
     const toolbar = document.getElementById('toolbar');
-    const placementButtons = toolbar.querySelectorAll('button[data-tool="circle"], button[data-tool="square"], button[data-tool="triangle"], button[data-tool="repel"]');
+    const placementTools = new Set(['circle', 'square', 'triangle', 'add', 'remove', 'repel']);
+    const placementButtons = toolbar.querySelectorAll('button[data-tool="circle"], button[data-tool="square"], button[data-tool="triangle"], button[data-tool="add"], button[data-tool="remove"], button[data-tool="repel"]');
     toolbar.querySelectorAll('button').forEach(btn => {
       btn.addEventListener('click', () => {
         const tool = btn.dataset.tool;
@@ -267,19 +458,53 @@
           btn.classList.toggle('active', inspectOn);
           return;
         }
+        if (!placementTools.has(tool)) return;
         activeTool = (activeTool === tool) ? null : tool;
         placementButtons.forEach(b => {
           b.classList.toggle('active', b.dataset.tool === activeTool);
         });
-        if (activeTool === 'repel')      canvas.style.cursor = 'crosshair';
-        else if (activeTool)             canvas.style.cursor = 'copy';
-        else                             canvas.style.cursor = 'default';
+        if (activeTool === 'repel')                              canvas.style.cursor = 'crosshair';
+        else if (activeTool === 'add' || activeTool === 'remove') canvas.style.cursor = 'crosshair';
+        else if (activeTool)                                     canvas.style.cursor = 'copy';
+        else                                                     canvas.style.cursor = 'default';
       });
+    });
+
+    const speciesPicker = document.getElementById('species-picker');
+    function updateSpeciesPicker() {
+      speciesPicker.querySelectorAll('button').forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.species, 10) === activeSpecies);
+      });
+    }
+    speciesPicker.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        activeSpecies = parseInt(btn.dataset.species, 10);
+        updateSpeciesPicker();
+      });
+    });
+    updateSpeciesPicker();
+
+    const visualRangeSlider = document.getElementById('visual-range');
+    const visualRangeValue = document.getElementById('visual-range-value');
+    visualRangeSlider.addEventListener('input', () => {
+      VISUAL_RANGE = parseInt(visualRangeSlider.value, 10);
+      visualRangeValue.textContent = VISUAL_RANGE;
+    });
+
+    const avoidRangeSlider = document.getElementById('avoid-range');
+    const avoidRangeValue = document.getElementById('avoid-range-value');
+    avoidRangeSlider.addEventListener('input', () => {
+      DIFF_SPECIES_RANGE = parseInt(avoidRangeSlider.value, 10);
+      avoidRangeValue.textContent = DIFF_SPECIES_RANGE;
     });
 
     function step() {
       const w = viewW(), h = viewH();
+      const visualSq = VISUAL_RANGE * VISUAL_RANGE;
+      const protectedSq = PROTECTED_RANGE * PROTECTED_RANGE;
+      const diffSq = DIFF_SPECIES_RANGE * DIFF_SPECIES_RANGE;
       for (const b of boids) {
+        const p = SPECIES_PARAMS[b.species];
         let closeDx = 0, closeDy = 0;
         let avgVx = 0, avgVy = 0;
         let avgX = 0, avgY = 0;
@@ -290,15 +515,26 @@
           const dx = b.x - other.x;
           const dy = b.y - other.y;
           const distSq = dx * dx + dy * dy;
-          if (distSq < PROTECTED_RANGE * PROTECTED_RANGE) {
-            closeDx += dx;
-            closeDy += dy;
-          } else if (distSq < VISUAL_RANGE * VISUAL_RANGE) {
-            avgVx += other.vx;
-            avgVy += other.vy;
-            avgX += other.x;
-            avgY += other.y;
-            neighbors++;
+          const sameSpecies = other.species === b.species;
+
+          if (sameSpecies) {
+            if (distSq < protectedSq) {
+              const dist = Math.sqrt(distSq) || 0.01;
+              const falloff = 1 - dist / PROTECTED_RANGE;
+              closeDx += (dx / dist) * falloff;
+              closeDy += (dy / dist) * falloff;
+            } else if (distSq < visualSq) {
+              avgVx += other.vx;
+              avgVy += other.vy;
+              avgX += other.x;
+              avgY += other.y;
+              neighbors++;
+            }
+          } else if (distSq < diffSq) {
+            const dist = Math.sqrt(distSq) || 0.01;
+            const falloff = 1 - dist / DIFF_SPECIES_RANGE;
+            closeDx += (dx / dist) * falloff * DIFF_SPECIES_FACTOR;
+            closeDy += (dy / dist) * falloff * DIFF_SPECIES_FACTOR;
           }
         }
 
@@ -307,11 +543,11 @@
           avgVy /= neighbors;
           avgX /= neighbors;
           avgY /= neighbors;
-          b.vx += (avgVx - b.vx) * ALIGN_FACTOR + (avgX - b.x) * COHESION_FACTOR;
-          b.vy += (avgVy - b.vy) * ALIGN_FACTOR + (avgY - b.y) * COHESION_FACTOR;
+          b.vx += (avgVx - b.vx) * p.alignFactor + (avgX - b.x) * p.cohesionFactor;
+          b.vy += (avgVy - b.vy) * p.alignFactor + (avgY - b.y) * p.cohesionFactor;
         }
-        b.vx += closeDx * SEPARATION_FACTOR;
-        b.vy += closeDy * SEPARATION_FACTOR;
+        b.vx += closeDx * p.separationFactor;
+        b.vy += closeDy * p.separationFactor;
 
         if (obstacles.length > 0) {
           const speed = Math.hypot(b.vx, b.vy) || 1;
@@ -343,12 +579,12 @@
         if (b.y > h - EDGE_MARGIN)     b.vy -= TURN_FACTOR;
 
         const speed = Math.hypot(b.vx, b.vy);
-        if (speed > MAX_SPEED) {
-          b.vx = (b.vx / speed) * MAX_SPEED;
-          b.vy = (b.vy / speed) * MAX_SPEED;
-        } else if (speed < MIN_SPEED && speed > 0) {
-          b.vx = (b.vx / speed) * MIN_SPEED;
-          b.vy = (b.vy / speed) * MIN_SPEED;
+        if (speed > p.maxSpeed) {
+          b.vx = (b.vx / speed) * p.maxSpeed;
+          b.vy = (b.vy / speed) * p.maxSpeed;
+        } else if (speed < p.minSpeed && speed > 0) {
+          b.vx = (b.vx / speed) * p.minSpeed;
+          b.vy = (b.vy / speed) * p.minSpeed;
         }
 
         b.x += b.vx;
@@ -356,84 +592,142 @@
       }
     }
 
-    function drawObstacle(o) {
-      ctx.fillStyle = 'rgba(244, 114, 182, 0.55)';
-      ctx.strokeStyle = 'rgba(244, 114, 182, 0.95)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
+    function drawObstacle(o, c) {
+      c.fillStyle = 'rgba(244, 114, 182, 0.55)';
+      c.strokeStyle = 'rgba(244, 114, 182, 0.95)';
+      c.lineWidth = 1.5;
+      c.beginPath();
       if (o.type === 'circle') {
-        ctx.arc(o.x, o.y, o.size, 0, Math.PI * 2);
+        c.arc(o.x, o.y, o.size, 0, Math.PI * 2);
       } else if (o.type === 'square') {
-        ctx.rect(o.x - o.size, o.y - o.size, o.size * 2, o.size * 2);
+        c.rect(o.x - o.size, o.y - o.size, o.size * 2, o.size * 2);
       } else if (o.type === 'triangle') {
-        ctx.moveTo(o.verts[0].x, o.verts[0].y);
-        ctx.lineTo(o.verts[1].x, o.verts[1].y);
-        ctx.lineTo(o.verts[2].x, o.verts[2].y);
-        ctx.closePath();
+        c.moveTo(o.verts[0].x, o.verts[0].y);
+        c.lineTo(o.verts[1].x, o.verts[1].y);
+        c.lineTo(o.verts[2].x, o.verts[2].y);
+        c.closePath();
       }
-      ctx.fill();
-      ctx.stroke();
+      c.fill();
+      c.stroke();
     }
 
-    function drawInspectOverlay() {
+    function drawInspectOverlay(c) {
       const watched = [];
-      for (let i = Math.floor(INSPECT_EVERY / 2); i < boids.length; i += INSPECT_EVERY) {
-        watched.push(boids[i]);
+      const counts = new Array(SPECIES.length).fill(0);
+      for (const b of boids) {
+        if (counts[b.species] < INSPECT_PER_SPECIES) {
+          watched.push(b);
+          counts[b.species]++;
+        }
+        if (watched.length >= SPECIES.length * INSPECT_PER_SPECIES) break;
       }
 
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = 'rgba(252, 211, 77, 0.10)';
+      c.lineWidth = 1;
       for (const b of watched) {
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, VISUAL_RANGE, 0, Math.PI * 2);
-        ctx.stroke();
+        const s = SPECIES[b.species];
+        c.strokeStyle = `hsla(${s.centerHue}, 70%, 65%, 0.22)`;
+        c.beginPath();
+        c.arc(b.x, b.y, VISUAL_RANGE, 0, Math.PI * 2);
+        c.stroke();
       }
 
-      ctx.strokeStyle = 'rgba(244, 114, 182, 0.20)';
+      c.strokeStyle = 'rgba(244, 114, 182, 0.22)';
       for (const b of watched) {
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, PROTECTED_RANGE, 0, Math.PI * 2);
-        ctx.stroke();
+        c.beginPath();
+        c.arc(b.x, b.y, PROTECTED_RANGE, 0, Math.PI * 2);
+        c.stroke();
       }
 
-      ctx.strokeStyle = 'rgba(252, 211, 77, 0.22)';
-      ctx.lineWidth = 0.6;
-      ctx.beginPath();
+      c.strokeStyle = 'rgba(244, 114, 182, 0.32)';
+      c.lineWidth = 0.9;
+      c.setLineDash([4, 4]);
+      for (const b of watched) {
+        c.beginPath();
+        c.arc(b.x, b.y, DIFF_SPECIES_RANGE, 0, Math.PI * 2);
+        c.stroke();
+      }
+      c.setLineDash([]);
+
+      c.lineWidth = 0.8;
       const visualSq = VISUAL_RANGE * VISUAL_RANGE;
+      for (const b of watched) {
+        const s = SPECIES[b.species];
+        c.strokeStyle = `hsla(${s.centerHue}, 80%, 72%, 0.55)`;
+        c.beginPath();
+        for (const other of boids) {
+          if (other === b) continue;
+          if (other.species !== b.species) continue;
+          const dx = b.x - other.x, dy = b.y - other.y;
+          if (dx * dx + dy * dy < visualSq) {
+            c.moveTo(b.x, b.y);
+            c.lineTo(other.x, other.y);
+          }
+        }
+        c.stroke();
+      }
+
+      c.strokeStyle = 'rgba(244, 114, 182, 0.85)';
+      c.lineWidth = 1.2;
+      c.setLineDash([5, 4]);
+      c.beginPath();
+      const diffSq = DIFF_SPECIES_RANGE * DIFF_SPECIES_RANGE;
       for (const b of watched) {
         for (const other of boids) {
           if (other === b) continue;
+          if (other.species === b.species) continue;
           const dx = b.x - other.x, dy = b.y - other.y;
-          if (dx * dx + dy * dy < visualSq) {
-            ctx.moveTo(b.x, b.y);
-            ctx.lineTo(other.x, other.y);
+          if (dx * dx + dy * dy < diffSq) {
+            c.moveTo(b.x, b.y);
+            c.lineTo(other.x, other.y);
           }
         }
       }
-      ctx.stroke();
+      c.stroke();
+      c.setLineDash([]);
 
-      ctx.strokeStyle = 'rgba(252, 211, 77, 0.85)';
-      ctx.lineWidth = 1.4;
-      ctx.fillStyle = 'rgba(252, 211, 77, 0.9)';
+      c.strokeStyle = 'rgba(252, 211, 77, 0.85)';
+      c.lineWidth = 1.4;
+      c.fillStyle = 'rgba(252, 211, 77, 0.9)';
       for (const b of watched) {
         const speed = Math.hypot(b.vx, b.vy) || 1;
         const ax = b.x + (b.vx / speed) * LOOK_AHEAD;
         const ay = b.y + (b.vy / speed) * LOOK_AHEAD;
-        ctx.beginPath();
-        ctx.moveTo(b.x, b.y);
-        ctx.lineTo(ax, ay);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(ax, ay, 2.8, 0, Math.PI * 2);
-        ctx.fill();
+        c.beginPath();
+        c.moveTo(b.x, b.y);
+        c.lineTo(ax, ay);
+        c.stroke();
+        c.beginPath();
+        c.arc(ax, ay, 2.8, 0, Math.PI * 2);
+        c.fill();
       }
 
-      ctx.strokeStyle = 'rgba(252, 211, 77, 0.9)';
-      ctx.lineWidth = 1.2;
+      c.strokeStyle = 'rgba(252, 211, 77, 0.9)';
+      c.lineWidth = 1.2;
       for (const b of watched) {
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, 9, 0, Math.PI * 2);
-        ctx.stroke();
+        c.beginPath();
+        c.arc(b.x, b.y, 9, 0, Math.PI * 2);
+        c.stroke();
+      }
+    }
+
+    function drawBrushIndicator(c) {
+      if (!mouse.over || mouse.x === null) return;
+      if (activeTool === 'repel') {
+        c.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+        c.lineWidth = 1;
+        c.beginPath();
+        c.arc(mouse.x, mouse.y, MOUSE_REPEL_RANGE, 0, Math.PI * 2);
+        c.stroke();
+      } else if (activeTool === 'add' || activeTool === 'remove') {
+        const r = activeTool === 'add' ? ADD_BRUSH_RADIUS : REMOVE_BRUSH_RADIUS;
+        const s = SPECIES[activeSpecies];
+        c.strokeStyle = `hsla(${s.centerHue}, 80%, 65%, 0.7)`;
+        c.lineWidth = 1.4;
+        if (activeTool === 'remove') c.setLineDash([5, 4]);
+        c.beginPath();
+        c.arc(mouse.x, mouse.y, r, 0, Math.PI * 2);
+        c.stroke();
+        if (activeTool === 'remove') c.setLineDash([]);
       }
     }
 
@@ -446,7 +740,7 @@
         ctx.save();
         ctx.translate(b.x, b.y);
         ctx.rotate(angle);
-        ctx.fillStyle = `hsl(${b.hue}, 80%, 65%)`;
+        ctx.fillStyle = `hsl(${b.hue}, ${SPECIES_SAT[b.species]}%, ${SPECIES_LIGHT[b.species]}%)`;
         ctx.beginPath();
         ctx.moveTo(9, 0);
         ctx.lineTo(-6, 5);
@@ -456,17 +750,10 @@
         ctx.restore();
       }
 
-      for (const o of obstacles) drawObstacle(o);
-
-      if (activeTool === 'repel' && mouse.over && mouse.x !== null) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(mouse.x, mouse.y, MOUSE_REPEL_RANGE, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-
-      if (inspectOn) drawInspectOverlay();
+      overlayCtx.clearRect(0, 0, viewW(), viewH());
+      for (const o of obstacles) drawObstacle(o, overlayCtx);
+      drawBrushIndicator(overlayCtx);
+      if (inspectOn) drawInspectOverlay(overlayCtx);
     }
 
     function loop() {
