@@ -15,7 +15,7 @@
       color: #d4d4d8;
       user-select: none;
     }
-    canvas {
+    #c, #overlay-canvas {
       display: block;
       position: absolute;
       top: 0;
@@ -137,9 +137,15 @@
       color: #d4d4d8;
       border: 1px solid rgba(255, 255, 255, 0.08);
       display: flex;
+      flex-direction: row;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+    .stats-numbers {
+      display: flex;
       flex-direction: column;
       gap: 0.25rem;
-      min-width: 7.5rem;
+      min-width: 7rem;
     }
     .stats-row {
       display: flex;
@@ -166,6 +172,28 @@
       margin-top: 0.2rem;
       padding-top: 0.35rem;
       border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    #stats-graph {
+      display: block;
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 4px;
+    }
+    .stats-graph-wrap {
+      display: flex;
+      flex-direction: row;
+      gap: 0.3rem;
+      align-items: stretch;
+    }
+    .stats-axis {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      font-size: 0.7rem;
+      color: rgba(255, 255, 255, 0.55);
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      padding: 1px 0;
+      min-width: 1.4rem;
     }
 
     .toolbar {
@@ -308,33 +336,42 @@
     <button data-tool="clear" title="Clear all obstacles">Clear</button>
   </div>
   <div class="stats" id="stats">
-    <div class="stats-row">
-      <span class="label">Total</span>
-      <span class="value" id="stats-total">180</span>
+    <div class="stats-graph-wrap">
+      <div class="stats-axis">
+        <span id="stats-graph-max">60</span>
+        <span>0</span>
+      </div>
+      <canvas id="stats-graph" width="160" height="130"></canvas>
     </div>
-    <div class="stats-row">
-      <span class="stats-dot" style="background: hsl(207, 80%, 65%);"></span>
-      <span class="label">Sky</span>
-      <span class="value" id="stats-0">60</span>
-    </div>
-    <div class="stats-row">
-      <span class="stats-dot" style="background: hsl(35, 85%, 60%);"></span>
-      <span class="label">Sun</span>
-      <span class="value" id="stats-1">60</span>
-    </div>
-    <div class="stats-row">
-      <span class="stats-dot" style="background: hsl(115, 65%, 58%);"></span>
-      <span class="label">Lime</span>
-      <span class="value" id="stats-2">60</span>
-    </div>
-    <div class="stats-row">
-      <span class="stats-dot" style="background: hsl(354, 75%, 50%);"></span>
-      <span class="label">Crimson</span>
-      <span class="value" id="stats-3">5</span>
-    </div>
-    <div class="stats-row stats-divider">
-      <span class="label">FPS</span>
-      <span class="value" id="stats-fps">60</span>
+    <div class="stats-numbers">
+      <div class="stats-row">
+        <span class="label">Total</span>
+        <span class="value" id="stats-total">180</span>
+      </div>
+      <div class="stats-row">
+        <span class="stats-dot" style="background: hsl(207, 80%, 65%);"></span>
+        <span class="label">Sky</span>
+        <span class="value" id="stats-0">60</span>
+      </div>
+      <div class="stats-row">
+        <span class="stats-dot" style="background: hsl(35, 85%, 60%);"></span>
+        <span class="label">Sun</span>
+        <span class="value" id="stats-1">60</span>
+      </div>
+      <div class="stats-row">
+        <span class="stats-dot" style="background: hsl(115, 65%, 58%);"></span>
+        <span class="label">Lime</span>
+        <span class="value" id="stats-2">60</span>
+      </div>
+      <div class="stats-row">
+        <span class="stats-dot" style="background: hsl(354, 75%, 50%);"></span>
+        <span class="label">Crimson</span>
+        <span class="value" id="stats-3">5</span>
+      </div>
+      <div class="stats-row stats-divider">
+        <span class="label">FPS</span>
+        <span class="value" id="stats-fps">60</span>
+      </div>
     </div>
   </div>
   <script>
@@ -384,6 +421,10 @@
     const FLEE_FORCE = 0.10;
     const CATCH_RADIUS = 18;
     const SATIETY_DURATION = 600;
+    const CONTAGION_FORCE = 0.06;
+    const ALARM_DECAY = 0.985;
+    const ALARM_INHERIT = 0.85;
+    const ALARM_THRESHOLD = 0.2;
     const SPECIES_INITIAL = [60, 60, 60, 5];
     const EDGE_MARGIN = 90;
 
@@ -434,6 +475,9 @@
         species,
         hue,
         satiated: 0,
+        alarm: 0,
+        alarmDx: 0,
+        alarmDy: 0,
       });
     }
     for (let s = 0; s < SPECIES.length; s++) {
@@ -641,6 +685,48 @@
     let fpsFrameCount = 0;
     let fpsValue = 60;
     let statsLastUpdate = 0;
+    const graphCanvas = document.getElementById('stats-graph');
+    const graphCtx = graphCanvas.getContext('2d');
+    const graphMaxEl = document.getElementById('stats-graph-max');
+    const GRAPH_HISTORY_LENGTH = 60;
+    const GRAPH_SAMPLE_INTERVAL = 500;
+    const graphHistory = [[], [], [], []];
+    let graphLastSample = 0;
+    function sampleGraph(now) {
+      if (now - graphLastSample < GRAPH_SAMPLE_INTERVAL) return;
+      graphLastSample = now;
+      const counts = [0, 0, 0, 0];
+      for (const b of boids) counts[b.species]++;
+      for (let s = 0; s < 4; s++) {
+        graphHistory[s].push(counts[s]);
+        if (graphHistory[s].length > GRAPH_HISTORY_LENGTH) graphHistory[s].shift();
+      }
+      drawGraph();
+    }
+    function drawGraph() {
+      const w = graphCanvas.width;
+      const h = graphCanvas.height;
+      graphCtx.clearRect(0, 0, w, h);
+      let maxCount = 1;
+      for (const series of graphHistory) {
+        for (const v of series) if (v > maxCount) maxCount = v;
+      }
+      graphCtx.lineWidth = 1.5;
+      for (let s = 0; s < 4; s++) {
+        const series = graphHistory[s];
+        if (series.length < 2) continue;
+        graphCtx.strokeStyle = `hsl(${SPECIES[s].centerHue}, ${SPECIES_SAT[s]}%, ${SPECIES_LIGHT[s]}%)`;
+        graphCtx.beginPath();
+        for (let i = 0; i < series.length; i++) {
+          const x = (i / (GRAPH_HISTORY_LENGTH - 1)) * w;
+          const y = h - (series[i] / maxCount) * (h - 4) - 2;
+          if (i === 0) graphCtx.moveTo(x, y);
+          else graphCtx.lineTo(x, y);
+        }
+        graphCtx.stroke();
+      }
+      graphMaxEl.textContent = String(maxCount);
+    }
     function updateStats(now) {
       if (now - statsLastUpdate < 250) return;
       statsLastUpdate = now;
@@ -669,6 +755,7 @@
         let nearestPreyDx = 0, nearestPreyDy = 0, nearestPreyDistSq = visualSq;
         let nearestPreyFound = false;
         let fleeX = 0, fleeY = 0, fleeCount = 0;
+        let inheritedAlarm = 0, inheritedAlarmDx = 0, inheritedAlarmDy = 0;
 
         for (const other of boids) {
           if (other === b) continue;
@@ -679,6 +766,11 @@
           const otherIsPredator = other.species === PREDATOR_SPECIES;
 
           if (sameSpecies) {
+            if (distSq < visualSq && other.alarm > inheritedAlarm) {
+              inheritedAlarm = other.alarm;
+              inheritedAlarmDx = other.alarmDx;
+              inheritedAlarmDy = other.alarmDy;
+            }
             if (distSq < protectedSq) {
               const dist = Math.sqrt(distSq) || 0.01;
               const falloff = 1 - dist / PROTECTED_RANGE;
@@ -738,6 +830,23 @@
           b.vy += fleeY * FLEE_FORCE;
         }
 
+        if (fleeCount > 0) {
+          b.alarm = 1;
+          const fmag = Math.hypot(fleeX, fleeY) || 1;
+          b.alarmDx = fleeX / fmag;
+          b.alarmDy = fleeY / fmag;
+        } else if (inheritedAlarm * ALARM_INHERIT > b.alarm) {
+          b.alarm = inheritedAlarm * ALARM_INHERIT;
+          b.alarmDx = inheritedAlarmDx;
+          b.alarmDy = inheritedAlarmDy;
+        } else {
+          b.alarm *= ALARM_DECAY;
+        }
+        if (fleeCount === 0 && b.alarm > ALARM_THRESHOLD) {
+          b.vx += b.alarmDx * b.alarm * CONTAGION_FORCE;
+          b.vy += b.alarmDy * b.alarm * CONTAGION_FORCE;
+        }
+
         if (obstacles.length > 0) {
           let avoidFx = 0, avoidFy = 0;
           for (const o of obstacles) {
@@ -781,10 +890,11 @@
           }
         }
 
-        if (b.x < EDGE_MARGIN)         b.vx += p.turnFactor;
-        if (b.x > w - EDGE_MARGIN)     b.vx -= p.turnFactor;
-        if (b.y < EDGE_MARGIN)         b.vy += p.turnFactor;
-        if (b.y > h - EDGE_MARGIN)     b.vy -= p.turnFactor;
+        const edgeTurn = (isPredator && nearestPreyFound) ? p.turnFactor * 0.2 : p.turnFactor;
+        if (b.x < EDGE_MARGIN)         b.vx += edgeTurn;
+        if (b.x > w - EDGE_MARGIN)     b.vx -= edgeTurn;
+        if (b.y < EDGE_MARGIN)         b.vy += edgeTurn;
+        if (b.y > h - EDGE_MARGIN)     b.vy -= edgeTurn;
 
         const speed = Math.hypot(b.vx, b.vy);
         if (speed > p.maxSpeed) {
@@ -1069,6 +1179,7 @@
       if (!paused) step();
       draw();
       updateStats(now);
+      sampleGraph(now);
       requestAnimationFrame(loop);
     }
     loop();
