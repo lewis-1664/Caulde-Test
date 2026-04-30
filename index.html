@@ -201,6 +201,11 @@
       <input type="range" id="avoid-range" min="20" max="300" value="38" step="1">
       <span class="value" id="avoid-range-value">38</span>
     </label>
+    <label>
+      Look-ahead
+      <input type="range" id="look-ahead" min="0" max="200" value="45" step="1">
+      <span class="value" id="look-ahead-value">45</span>
+    </label>
     <div class="species-row">
       <span class="label">Species</span>
       <div class="species-picker" id="species-picker">
@@ -284,15 +289,18 @@
     const PROTECTED_RANGE = 18;
     let DIFF_SPECIES_RANGE = 38;
     const SPECIES_PARAMS = [
-      { maxSpeed: 2.8, minSpeed: 1.4, alignFactor: 0.030, cohesionFactor: 0.0005, separationFactor: 0.5 },
-      { maxSpeed: 3.4, minSpeed: 1.8, alignFactor: 0.022, cohesionFactor: 0.0003, separationFactor: 0.6 },
-      { maxSpeed: 2.0, minSpeed: 1.0, alignFactor: 0.050, cohesionFactor: 0.0009, separationFactor: 0.4 },
+      { maxSpeed: 2.8, minSpeed: 1.4, alignFactor: 0.030, cohesionFactor: 0.0005,  separationFactor: 0.50, turnFactor: 0.15 },
+      { maxSpeed: 4.0, minSpeed: 2.0, alignFactor: 0.010, cohesionFactor: 0.00012, separationFactor: 0.80, turnFactor: 0.22 },
+      { maxSpeed: 1.5, minSpeed: 0.8, alignFactor: 0.080, cohesionFactor: 0.0016,  separationFactor: 0.30, turnFactor: 0.10 },
     ];
     const DIFF_SPECIES_FACTOR = 0.5;
-    const TURN_FACTOR = 0.15;
     const EDGE_MARGIN = 90;
 
-    const LOOK_AHEAD = 45;
+    let LOOK_AHEAD = 45;
+    const ARC_PROBE_COUNT = 5;
+    const ARC_HALF_ANGLE_RAD = 50 * Math.PI / 180;
+    const ARC_PROBE_WEIGHT = 0.25;
+    const MAX_AVOID_FORCE = 0.6;
 
     const OBSTACLE_REPEL_RANGE = 45;
     const OBSTACLE_REPEL_FORCE = 0.08;
@@ -498,6 +506,13 @@
       avoidRangeValue.textContent = DIFF_SPECIES_RANGE;
     });
 
+    const lookAheadSlider = document.getElementById('look-ahead');
+    const lookAheadValue = document.getElementById('look-ahead-value');
+    lookAheadSlider.addEventListener('input', () => {
+      LOOK_AHEAD = parseInt(lookAheadSlider.value, 10);
+      lookAheadValue.textContent = LOOK_AHEAD;
+    });
+
     function step() {
       const w = viewW(), h = viewH();
       const visualSq = VISUAL_RANGE * VISUAL_RANGE;
@@ -550,15 +565,34 @@
         b.vy += closeDy * p.separationFactor;
 
         if (obstacles.length > 0) {
-          const speed = Math.hypot(b.vx, b.vy) || 1;
-          const ahead_x = b.x + (b.vx / speed) * LOOK_AHEAD;
-          const ahead_y = b.y + (b.vy / speed) * LOOK_AHEAD;
+          let avoidFx = 0, avoidFy = 0;
           for (const o of obstacles) {
-            const [fx1, fy1] = obstacleRepelAt(o, b.x, b.y);
-            const [fx2, fy2] = obstacleRepelAt(o, ahead_x, ahead_y);
-            b.vx += fx1 + fx2 * 0.7;
-            b.vy += fy1 + fy2 * 0.7;
+            const [fx, fy] = obstacleRepelAt(o, b.x, b.y);
+            avoidFx += fx;
+            avoidFy += fy;
           }
+          if (LOOK_AHEAD > 0) {
+            const heading = Math.atan2(b.vy, b.vx);
+            for (let i = 0; i < ARC_PROBE_COUNT; i++) {
+              const t = (i / (ARC_PROBE_COUNT - 1) - 0.5) * 2;
+              const angle = heading + t * ARC_HALF_ANGLE_RAD;
+              const px = b.x + Math.cos(angle) * LOOK_AHEAD;
+              const py = b.y + Math.sin(angle) * LOOK_AHEAD;
+              for (const o of obstacles) {
+                const [fx, fy] = obstacleRepelAt(o, px, py);
+                avoidFx += fx * ARC_PROBE_WEIGHT;
+                avoidFy += fy * ARC_PROBE_WEIGHT;
+              }
+            }
+          }
+          const avoidMag = Math.hypot(avoidFx, avoidFy);
+          if (avoidMag > MAX_AVOID_FORCE) {
+            const k = MAX_AVOID_FORCE / avoidMag;
+            avoidFx *= k;
+            avoidFy *= k;
+          }
+          b.vx += avoidFx;
+          b.vy += avoidFy;
         }
 
         if (activeTool === 'repel' && mouse.over && mouse.x !== null) {
@@ -573,10 +607,10 @@
           }
         }
 
-        if (b.x < EDGE_MARGIN)         b.vx += TURN_FACTOR;
-        if (b.x > w - EDGE_MARGIN)     b.vx -= TURN_FACTOR;
-        if (b.y < EDGE_MARGIN)         b.vy += TURN_FACTOR;
-        if (b.y > h - EDGE_MARGIN)     b.vy -= TURN_FACTOR;
+        if (b.x < EDGE_MARGIN)         b.vx += p.turnFactor;
+        if (b.x > w - EDGE_MARGIN)     b.vx -= p.turnFactor;
+        if (b.y < EDGE_MARGIN)         b.vy += p.turnFactor;
+        if (b.y > h - EDGE_MARGIN)     b.vy -= p.turnFactor;
 
         const speed = Math.hypot(b.vx, b.vy);
         if (speed > p.maxSpeed) {
@@ -685,20 +719,29 @@
       c.stroke();
       c.setLineDash([]);
 
-      c.strokeStyle = 'rgba(252, 211, 77, 0.85)';
-      c.lineWidth = 1.4;
-      c.fillStyle = 'rgba(252, 211, 77, 0.9)';
       for (const b of watched) {
-        const speed = Math.hypot(b.vx, b.vy) || 1;
-        const ax = b.x + (b.vx / speed) * LOOK_AHEAD;
-        const ay = b.y + (b.vy / speed) * LOOK_AHEAD;
-        c.beginPath();
-        c.moveTo(b.x, b.y);
-        c.lineTo(ax, ay);
-        c.stroke();
-        c.beginPath();
-        c.arc(ax, ay, 2.8, 0, Math.PI * 2);
-        c.fill();
+        const heading = Math.atan2(b.vy, b.vx);
+        if (LOOK_AHEAD > 0) {
+          c.fillStyle = 'rgba(252, 211, 77, 0.07)';
+          c.strokeStyle = 'rgba(252, 211, 77, 0.45)';
+          c.lineWidth = 1;
+          c.beginPath();
+          c.moveTo(b.x, b.y);
+          c.arc(b.x, b.y, LOOK_AHEAD, heading - ARC_HALF_ANGLE_RAD, heading + ARC_HALF_ANGLE_RAD);
+          c.closePath();
+          c.fill();
+          c.stroke();
+          c.fillStyle = 'rgba(252, 211, 77, 0.85)';
+          for (let i = 0; i < ARC_PROBE_COUNT; i++) {
+            const t = (i / (ARC_PROBE_COUNT - 1) - 0.5) * 2;
+            const angle = heading + t * ARC_HALF_ANGLE_RAD;
+            const ax = b.x + Math.cos(angle) * LOOK_AHEAD;
+            const ay = b.y + Math.sin(angle) * LOOK_AHEAD;
+            c.beginPath();
+            c.arc(ax, ay, 2.5, 0, Math.PI * 2);
+            c.fill();
+          }
+        }
       }
 
       c.strokeStyle = 'rgba(252, 211, 77, 0.9)';
