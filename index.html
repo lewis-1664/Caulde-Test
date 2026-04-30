@@ -125,6 +125,49 @@
       box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
     }
 
+    .stats {
+      position: fixed;
+      bottom: 1.25rem;
+      right: 1rem;
+      background: rgba(15, 17, 22, 0.85);
+      backdrop-filter: blur(6px);
+      padding: 0.55rem 0.85rem;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      color: #d4d4d8;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      min-width: 7.5rem;
+    }
+    .stats-row {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+    .stats-row .label {
+      flex: 1;
+      color: #a1a1aa;
+    }
+    .stats-row .value {
+      font-variant-numeric: tabular-nums;
+      color: #fff;
+      min-width: 2.4rem;
+      text-align: right;
+    }
+    .stats-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .stats-divider {
+      margin-top: 0.2rem;
+      padding-top: 0.35rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
     .toolbar {
       position: fixed;
       bottom: 1.25rem;
@@ -216,6 +259,16 @@
     </div>
   </div>
   <div class="toolbar" id="toolbar">
+    <button data-tool="pause" title="Pause / play (space)">
+      <svg width="22" height="22" viewBox="-12 -12 24 24" fill="currentColor" id="icon-pause">
+        <rect x="-6" y="-7" width="4" height="14"/>
+        <rect x="2" y="-7" width="4" height="14"/>
+      </svg>
+      <svg width="22" height="22" viewBox="-12 -12 24 24" fill="currentColor" id="icon-play" style="display:none">
+        <polygon points="-5,-7 -5,7 7,0"/>
+      </svg>
+    </button>
+    <div class="sep"></div>
     <button data-tool="circle" title="Place circle">
       <svg width="22" height="22" viewBox="-12 -12 24 24"><circle r="9" fill="currentColor"/></svg>
     </button>
@@ -252,6 +305,31 @@
     </button>
     <div class="sep"></div>
     <button data-tool="clear" title="Clear all obstacles">Clear</button>
+  </div>
+  <div class="stats" id="stats">
+    <div class="stats-row">
+      <span class="label">Total</span>
+      <span class="value" id="stats-total">180</span>
+    </div>
+    <div class="stats-row">
+      <span class="stats-dot" style="background: hsl(207, 80%, 65%);"></span>
+      <span class="label">Sky</span>
+      <span class="value" id="stats-0">60</span>
+    </div>
+    <div class="stats-row">
+      <span class="stats-dot" style="background: hsl(35, 85%, 60%);"></span>
+      <span class="label">Sun</span>
+      <span class="value" id="stats-1">60</span>
+    </div>
+    <div class="stats-row">
+      <span class="stats-dot" style="background: hsl(115, 65%, 58%);"></span>
+      <span class="label">Lime</span>
+      <span class="value" id="stats-2">60</span>
+    </div>
+    <div class="stats-row stats-divider">
+      <span class="label">FPS</span>
+      <span class="value" id="stats-fps">60</span>
+    </div>
   </div>
   <script>
     const canvas = document.getElementById('c');
@@ -321,6 +399,7 @@
     let activeTool = null;
     let activeSpecies = 0;
     let inspectOn = false;
+    let paused = false;
     const obstacles = [];
     const mouse = { x: null, y: null, over: false, down: false };
     let lastBrushAt = 0;
@@ -466,6 +545,10 @@
           btn.classList.toggle('active', inspectOn);
           return;
         }
+        if (tool === 'pause') {
+          togglePause();
+          return;
+        }
         if (!placementTools.has(tool)) return;
         activeTool = (activeTool === tool) ? null : tool;
         placementButtons.forEach(b => {
@@ -512,6 +595,45 @@
       LOOK_AHEAD = parseInt(lookAheadSlider.value, 10);
       lookAheadValue.textContent = LOOK_AHEAD;
     });
+
+    const pauseBtn = toolbar.querySelector('button[data-tool="pause"]');
+    const iconPause = document.getElementById('icon-pause');
+    const iconPlay = document.getElementById('icon-play');
+    function togglePause() {
+      paused = !paused;
+      iconPause.style.display = paused ? 'none' : 'block';
+      iconPlay.style.display  = paused ? 'block' : 'none';
+      pauseBtn.classList.toggle('active', paused);
+    }
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && e.target === document.body) {
+        e.preventDefault();
+        togglePause();
+      }
+    });
+
+    const statsEls = {
+      total: document.getElementById('stats-total'),
+      0:     document.getElementById('stats-0'),
+      1:     document.getElementById('stats-1'),
+      2:     document.getElementById('stats-2'),
+      fps:   document.getElementById('stats-fps'),
+    };
+    let fpsLastTime = performance.now();
+    let fpsFrameCount = 0;
+    let fpsValue = 60;
+    let statsLastUpdate = 0;
+    function updateStats(now) {
+      if (now - statsLastUpdate < 250) return;
+      statsLastUpdate = now;
+      const counts = [0, 0, 0];
+      for (const b of boids) counts[b.species]++;
+      statsEls.total.textContent = boids.length;
+      statsEls[0].textContent = counts[0];
+      statsEls[1].textContent = counts[1];
+      statsEls[2].textContent = counts[2];
+      statsEls.fps.textContent = fpsValue;
+    }
 
     function step() {
       const w = viewW(), h = viewH();
@@ -800,8 +922,16 @@
     }
 
     function loop() {
-      step();
+      const now = performance.now();
+      fpsFrameCount++;
+      if (now - fpsLastTime >= 500) {
+        fpsValue = Math.round(fpsFrameCount * 1000 / (now - fpsLastTime));
+        fpsLastTime = now;
+        fpsFrameCount = 0;
+      }
+      if (!paused) step();
       draw();
+      updateStats(now);
       requestAnimationFrame(loop);
     }
     loop();
