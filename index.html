@@ -162,6 +162,27 @@
       min-width: 2.4rem;
       text-align: right;
     }
+    .stats-row .value-sub {
+      font-variant-numeric: tabular-nums;
+      color: #71717a;
+      min-width: 1.8rem;
+      text-align: right;
+      font-size: 0.85em;
+    }
+    .stats-headers {
+      font-size: 0.7em;
+      color: #71717a;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .stats-headers .header-name { flex: 1; text-align: left; }
+    .stats-headers .header-cell {
+      min-width: 2.4rem;
+      text-align: right;
+    }
+    .stats-headers .header-cell.sub {
+      min-width: 1.8rem;
+    }
     .stats-dot {
       width: 8px;
       height: 8px;
@@ -549,32 +570,53 @@
     </div>
     <div class="stats-numbers">
       <div class="stats-row">
+        <span class="stats-dot" style="visibility: hidden;"></span>
         <span class="label">Total</span>
         <span class="value" id="stats-total">180</span>
+        <span class="value-sub" style="visibility: hidden;">0</span>
+        <span class="value-sub" style="visibility: hidden;">0</span>
+      </div>
+      <div class="stats-row stats-headers">
+        <span class="stats-dot" style="visibility: hidden;"></span>
+        <span class="header-name"></span>
+        <span class="header-cell">live</span>
+        <span class="header-cell sub" title="cumulative — eaten by predators">eaten</span>
+        <span class="header-cell sub" title="cumulative — died from starvation">starved</span>
       </div>
       <div class="stats-row">
         <span class="stats-dot" style="background: hsl(207, 80%, 65%);"></span>
         <span class="label">Sky</span>
         <span class="value" id="stats-0">60</span>
+        <span class="value-sub" id="stats-eaten-0" title="eaten by predators">0</span>
+        <span class="value-sub" id="stats-starved-0" title="died from starvation">0</span>
       </div>
       <div class="stats-row">
         <span class="stats-dot" style="background: hsl(35, 85%, 60%);"></span>
         <span class="label">Sun</span>
         <span class="value" id="stats-1">60</span>
+        <span class="value-sub" id="stats-eaten-1" title="eaten by predators">0</span>
+        <span class="value-sub" id="stats-starved-1" title="died from starvation">0</span>
       </div>
       <div class="stats-row">
         <span class="stats-dot" style="background: hsl(115, 65%, 58%);"></span>
         <span class="label">Lime</span>
         <span class="value" id="stats-2">60</span>
+        <span class="value-sub" id="stats-eaten-2" title="eaten by predators">0</span>
+        <span class="value-sub" id="stats-starved-2" title="died from starvation">0</span>
       </div>
       <div class="stats-row">
         <span class="stats-dot" style="background: hsl(354, 75%, 50%);"></span>
         <span class="label">Crimson</span>
         <span class="value" id="stats-3">5</span>
+        <span class="value-sub" id="stats-eaten-3" title="predators are not eaten">—</span>
+        <span class="value-sub" id="stats-starved-3" title="died from starvation">0</span>
       </div>
       <div class="stats-row stats-divider">
+        <span class="stats-dot" style="visibility: hidden;"></span>
         <span class="label">FPS</span>
         <span class="value" id="stats-fps">60</span>
+        <span class="value-sub" style="visibility: hidden;">0</span>
+        <span class="value-sub" style="visibility: hidden;">0</span>
       </div>
     </div>
   </div>
@@ -1231,7 +1273,12 @@
       2:     document.getElementById('stats-2'),
       3:     document.getElementById('stats-3'),
       fps:   document.getElementById('stats-fps'),
+      eaten:   [0, 1, 2, 3].map(i => document.getElementById(`stats-eaten-${i}`)),
+      starved: [0, 1, 2, 3].map(i => document.getElementById(`stats-starved-${i}`)),
     };
+    // Cumulative tallies — death cause per species.
+    const eatenTally   = [0, 0, 0, 0];
+    const starvedTally = [0, 0, 0, 0];
     let fpsLastTime = performance.now();
     let fpsFrameCount = 0;
     let fpsValue = 60;
@@ -1288,6 +1335,10 @@
       statsEls[1].textContent = counts[1];
       statsEls[2].textContent = counts[2];
       statsEls[3].textContent = counts[3];
+      for (let s = 0; s < 4; s++) {
+        if (s !== PREDATOR_SPECIES) statsEls.eaten[s].textContent = eatenTally[s];
+        statsEls.starved[s].textContent = starvedTally[s];
+      }
       statsEls.fps.textContent = fpsValue;
       updateSpeciesStats();
     }
@@ -1618,6 +1669,7 @@
         }
         if (bestIdx !== -1) {
           toRemove.add(bestIdx);
+          eatenTally[boids[bestIdx].species]++;
           pred.satiated = SATIETY_DURATION;
           pred.energy = Math.min(1.0, pred.energy + PREDATOR_CATCH_RESTORE);
         }
@@ -1628,7 +1680,10 @@
       }
 
       for (let i = boids.length - 1; i >= 0; i--) {
-        if (boids[i].energy <= 0) boids.splice(i, 1);
+        if (boids[i].energy <= 0) {
+          starvedTally[boids[i].species]++;
+          boids.splice(i, 1);
+        }
       }
 
       foodRespawnCounter++;
