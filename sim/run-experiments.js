@@ -404,6 +404,10 @@ function runSimulation(seed, frames, overrideParams = {}) {
           const dist = Math.sqrt(foodDistSq) || 0.01;
           const ux = -foodDx / dist, uy = -foodDy / dist;
           const hunger = Math.max(0, 1 - b.energy);
+          const closeBoost = 1 + Math.max(0, 1 - dist / 30) * P.FORAGE_CLOSE_BOOST;
+          const forage = hunger * b.forageFactor * closeBoost;
+          b.vx += ux * forage;
+          b.vy += uy * forage;
           const speedTowardFood = b.vx * ux + b.vy * uy;
           const sameFoodAsLast = b.stuckFood === nearestFood;
           if (sameFoodAsLast && dist > P.FOOD_CATCH_RADIUS && dist < 25 && speedTowardFood < 0.3) {
@@ -413,10 +417,17 @@ function runSimulation(seed, frames, overrideParams = {}) {
           }
           b.stuckFood = nearestFood;
           if (b.framesStuck > 20) stuckCirclingFood = true;
-          const closeBoost = 1 + Math.max(0, 1 - dist / 30) * P.FORAGE_CLOSE_BOOST;
-          const forage = hunger * b.forageFactor * closeBoost;
-          b.vx += ux * forage;
-          b.vy += uy * forage;
+          if (stuckCirclingFood) {
+            const speed = Math.hypot(b.vx, b.vy);
+            if (speed > 0.01) {
+              const steerFactor = 0.35;
+              let nvx = b.vx * (1 - steerFactor) + ux * speed * steerFactor;
+              let nvy = b.vy * (1 - steerFactor) + uy * speed * steerFactor;
+              const nmag = Math.hypot(nvx, nvy) || 1;
+              b.vx = (nvx / nmag) * speed;
+              b.vy = (nvy / nmag) * speed;
+            }
+          }
         } else {
           b.framesStuck = 0;
           b.stuckFood = null;
