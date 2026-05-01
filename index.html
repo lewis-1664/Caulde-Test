@@ -693,7 +693,13 @@
     const ADD_PER_DRAG_TICK = 1;
     const BRUSH_DRAG_INTERVAL = 70;
 
-    const TRAIL_FADE = 0.10;
+    // Trail rendering — each boid keeps a ring buffer of recent positions and
+    // we draw a fading line through them. TRAIL_LENGTH × TRAIL_SAMPLE_INTERVAL
+    // = how many frames of motion the trail covers (60 = 1 second at 60fps).
+    const TRAIL_LENGTH = 20;
+    const TRAIL_SAMPLE_INTERVAL = 3;
+    const TRAIL_MAX_ALPHA = 0.5;
+    const TRAIL_LINE_WIDTH = 1.8;
     const INSPECT_PER_SPECIES = 2;
 
     const TRAIT_VARIATION = 0.10;
@@ -788,6 +794,8 @@
         age: 0,
         framesStuck: 0,
         stuckFood: null,
+        trail: [],
+        trailCounter: 0,
         maxSpeed:         clampTrait(v(sp.maxSpeed),         TRAIT_BOUNDS.maxSpeed),
         minSpeed:         clampTrait(v(sp.minSpeed),         TRAIT_BOUNDS.minSpeed),
         alignFactor:      clampTrait(v(sp.alignFactor),      TRAIT_BOUNDS.alignFactor),
@@ -851,6 +859,8 @@
         age: 0,
         framesStuck: 0,
         stuckFood: null,
+        trail: [],
+        trailCounter: 0,
         maxSpeed:         m(parent.maxSpeed,         TRAIT_BOUNDS.maxSpeed),
         minSpeed:         m(parent.minSpeed,         TRAIT_BOUNDS.minSpeed),
         alignFactor:      m(parent.alignFactor,      TRAIT_BOUNDS.alignFactor),
@@ -1615,6 +1625,13 @@
         }
         if (b.satiated > 0) b.satiated--;
         b.age++;
+        // Sample trail position every TRAIL_SAMPLE_INTERVAL frames
+        b.trailCounter++;
+        if (b.trailCounter >= TRAIL_SAMPLE_INTERVAL) {
+          b.trailCounter = 0;
+          b.trail.push(b.x, b.y);
+          if (b.trail.length > TRAIL_LENGTH * 2) b.trail.splice(0, 2);
+        }
         const baseSpeed = isPredator ? 3.0 : 2.8;
         const excess = Math.max(0, b.maxSpeed - baseSpeed);
         const speedFactor = 1 + excess * excess * 1.5;
@@ -1971,8 +1988,38 @@
     }
 
     function draw() {
-      ctx.fillStyle = `rgba(15, 17, 22, ${TRAIL_FADE})`;
+      // Full clear — trails are drawn explicitly per boid below.
+      ctx.fillStyle = '#0f1116';
       ctx.fillRect(0, 0, viewW(), viewH());
+
+      // Trails — fading line through each boid's recent positions, in species colour.
+      ctx.lineCap = 'round';
+      ctx.lineWidth = TRAIL_LINE_WIDTH;
+      for (const b of boids) {
+        const trail = b.trail;
+        const n = trail.length;
+        if (n < 2) continue;
+        const hue = b.hue;
+        const sat = SPECIES_SAT[b.species];
+        const light = SPECIES_LIGHT[b.species];
+        const segCount = (n / 2) - 1;
+        // Draw older segments first (lower alpha) so newer ones layer on top.
+        for (let i = 0; i < segCount; i++) {
+          const ageFraction = i / segCount; // 0 = oldest, 1 = newest
+          const alpha = ageFraction * TRAIL_MAX_ALPHA;
+          ctx.strokeStyle = `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
+          ctx.beginPath();
+          ctx.moveTo(trail[i * 2], trail[i * 2 + 1]);
+          ctx.lineTo(trail[(i + 1) * 2], trail[(i + 1) * 2 + 1]);
+          ctx.stroke();
+        }
+        // Final segment from latest sample to current boid position
+        ctx.strokeStyle = `hsla(${hue}, ${sat}%, ${light}%, ${TRAIL_MAX_ALPHA})`;
+        ctx.beginPath();
+        ctx.moveTo(trail[n - 2], trail[n - 1]);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
 
       for (const b of boids) {
         const angle = Math.atan2(b.vy, b.vx);
