@@ -31,7 +31,7 @@ const DEFAULT_PARAMS = {
   PURSUE_FORCE: 0.07,
   FLEE_FORCE: 0.10,
   CATCH_RADIUS: 18,
-  SATIETY_DURATION: 600,
+  SATIETY_DURATION: 900,
   CONTAGION_FORCE: 0.06,
   ALARM_DECAY: 0.985,
   ALARM_INHERIT: 0.85,
@@ -72,7 +72,7 @@ const DEFAULT_PARAMS = {
   FORAGE_FORCE: 0.30,
   FORAGE_ENERGY_THRESHOLD: 0.80,
   FORAGE_CONE_COS: 0.5,
-  ENDANGERED_THRESHOLD: 2,
+  ENDANGERED_THRESHOLD: 4,
   ENDANGERED_REPRO_BOOST: 5,
   PACK_RANGE: 80,
   PACK_BONUS_PER_MATE: 0.4,
@@ -858,5 +858,5 @@ console.log('Natural-selection headless analysis — metabolic cost sweep\n');
 const FRAMES = 21600;
 const RUNS = 25;
 
-runScenario('Defaults (no terrain)', RUNS, FRAMES);
-runScenario('Defaults + terrain 10', RUNS, FRAMES, { NUM_OBSTACLES: 10 });
+runScenario('Defaults — 6 min', RUNS, FRAMES);
+runScenario('Defaults — 12 min', 15, 43200);

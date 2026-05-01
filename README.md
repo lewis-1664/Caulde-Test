@@ -157,7 +157,7 @@ FORAGE_CONE_COS:         0.5               ±60° forward vision cone for foragi
 NUM_FOOD_PATCHES:        10                food clusters around N invisible patch centres
 FOOD_PATCH_RADIUS:       60 px             food spawns within this of a patch centre
 
-ENDANGERED_THRESHOLD:    2                 ≤ this many individuals → reproduce 5× faster
+ENDANGERED_THRESHOLD:    4                 ≤ this many individuals → reproduce 5× faster
 ENDANGERED_REPRO_BOOST:  5                 multiplier when endangered
 
 TRAIT_VARIATION:         0.10              ±10% on spawn
@@ -172,7 +172,7 @@ TRAIT_BOUNDS.contagionFactor: [0.01, 0.20]
 PACK_RANGE:              80                predators within this distance buff each other
 PACK_BONUS_PER_MATE:     0.4               +40% pursue strength per nearby ally
 
-SATIETY_DURATION:        600 frames        per-catch cooldown for predators
+SATIETY_DURATION:        900 frames        per-catch cooldown for predators (15 sec)
 EDGE_MARGIN:             90 px
 
 PROTECTED_RANGE:         18                same-species personal space
@@ -278,10 +278,17 @@ behavior.
   than uniformly. Headless analysis showed 10 × 60px patches preserve uniform-baseline
   ecosystem health while still creating visible clustering behaviour. The orbit fix
   matters more here: dense clusters used to produce comical food-circling.
-- **Endangered-species reproduction boost.** When a species drops to ≤ 2 individuals,
+- **Endangered-species reproduction boost.** When a species drops to ≤ 4 individuals,
   reproduction probability is multiplied by 5× until population recovers. Stops the
   bad-luck extinction events where a solo Crimson would average ~111 seconds before
-  reproducing — long enough to age out and starve. Boost auto-disengages at 3+.
+  reproducing — long enough to age out and starve. Threshold is 4 (not 2) because
+  the boom-bust amplitude meant Crimson would crash through 4 → 0 too fast for a
+  threshold-2 boost to catch them; threshold-4 catches the decline mid-fall.
+- **Predator satiety = 900 frames (15 sec) between catches.** Originally 600 (10 sec).
+  Headless analysis showed the longer cooldown is a strict ecosystem improvement: prey
+  extinction over 6 min drops from 22/75 → 6/75 because predators eat less but more
+  reliably; predators still hit their food needs because catches are higher value
+  (more time for prey populations to recover between predation events).
 - **Trails are explicit, not afterimage.** The earlier `TRAIL_FADE` semi-transparent
   overdraw saturated into a smudgy mixed-species blur. Now each boid keeps a 28-position
   ring buffer and `draw()` strokes a fading polyline through it — clean per-species
@@ -315,26 +322,26 @@ behavior.
 ## Current ecosystem performance
 
 Headless characterisation of the shipping defaults (25 runs × 21600 frames = 6 minutes each;
-the 12-minute row uses 15 runs × 43200 frames):
+12-minute rows use 15 runs × 43200 frames):
 
-| Scenario | Prey ext (Sky/Sun/Lime, /25) | Crimson ext (/25) | Notes |
+| Scenario | Prey ext | Crimson ext | Crimson final mean |
 |---|---|---|---|
-| No terrain | 5 / 9 / 8 (22 total / 75) | 11 / 25 | Steady-state — Crimson boom-bust around food patches |
-| Terrain 6 | 10 / 8 / 9 (27 / 75) | 12 / 25 | Light terrain barely changes things |
-| Terrain 10 | 9 / 6 / 13 (28 / 75) | 14 / 25 | Mid-range — terrain occasionally bottlenecks prey |
-| Terrain 14 | 7 / 10 / 10 (27 / 75) | 11 / 25 | Heavy terrain similar to no-terrain |
-| **12-minute run, no terrain** | 5 / 8 / 7 (20 / 45) | **13 / 15** | Predators boom-bust harder over longer runs |
+| 6-min, no terrain | 21 / 75 | 7 / 25 | 2.6 |
+| 6-min + terrain 10 | 28 / 75 | 14 / 25 | 1.0 |
+| **12-min, no terrain** | 12 / 45 | 11 / 15 | 1.1 |
 
 **Selection signal at 6 minutes:** `maxSpeed` is the dominantly selected trait — Pearson
 `r(founder maxSpeed, lineage descendants) ≈ +0.16 to +0.28` for all three prey species,
 and mean trait drifts upward by ~7-10% over a run. Other traits (fleeFactor, leadFactor,
 contagionFactor) show no statistically meaningful selection at this run length.
 
-**Long-run dynamics:** Over 12 minutes, predators are the fragile species — peak averages
-of ~7.5 individuals during the simulation but final means of 0.4 because the boom-bust
-cycle eventually sees them lose the food race after a prey crash they can't survive.
-This is realistic apex-predator behaviour but suggests room for further tuning if you want
-predator stability over longer simulations.
+**Long-run dynamics:** Over 12 minutes, predators are still the more fragile species but
+the system is much more stable than earlier tunings. Mean Crimson population at run-end
+is 1.1 (up from 0.4 with `SATIETY_DURATION = 600`); peak averages are around 8.3
+individuals (out of cap 12). The combination of `SATIETY_DURATION = 900` (predators rest
+15s between catches instead of 10s) and `ENDANGERED_THRESHOLD = 4` (boost reproduction
+when ≤ 4, not just ≤ 2) gives predators both more food per minute AND faster recovery
+from low points before a complete crash.
 
 ## Phase 3 (not implemented)
 
