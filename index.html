@@ -959,13 +959,19 @@
       const gy = obstacleSDF(o, px, py + eps) - d;
       const len = Math.hypot(gx, gy) || 1;
       const nx = gx / len, ny = gy / len;
+      // Heading-aware scale: 0 for tangent or moving-away, 1 for head-on.
+      // Squared so glancing approaches get only a small nudge — boids that
+      // would naturally miss the obstacle don't get pushed unnecessarily.
       let directionScale = 1;
       if (vx !== undefined) {
         const speed = Math.hypot(vx, vy) || 0.01;
         const heading = -(vx * nx + vy * ny) / speed;
-        directionScale = Math.max(0.2, Math.max(0, heading));
+        const h = Math.max(0, heading);
+        directionScale = h * h;
       }
-      const strength = Math.max(0, OBSTACLE_REPEL_RANGE - d) * OBSTACLE_REPEL_FORCE * directionScale;
+      // Quadratic distance falloff — gentle at long range, firm near surface.
+      const t = Math.max(0, 1 - d / OBSTACLE_REPEL_RANGE);
+      const strength = t * t * OBSTACLE_REPEL_RANGE * OBSTACLE_REPEL_FORCE * directionScale;
       return [nx * strength, ny * strength];
     }
 

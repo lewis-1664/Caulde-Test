@@ -167,9 +167,11 @@ function runSimulation(seed, frames, overrideParams = {}) {
     if (vx !== undefined) {
       const speed = Math.hypot(vx, vy) || 0.01;
       const heading = -(vx * nx + vy * ny) / speed;
-      directionScale = Math.max(0.2, Math.max(0, heading));
+      const h = Math.max(0, heading);
+      directionScale = h * h;
     }
-    const strength = Math.max(0, P.OBSTACLE_REPEL_RANGE - d) * P.OBSTACLE_REPEL_FORCE * directionScale;
+    const t = Math.max(0, 1 - d / P.OBSTACLE_REPEL_RANGE);
+    const strength = t * t * P.OBSTACLE_REPEL_RANGE * P.OBSTACLE_REPEL_FORCE * directionScale;
     return [nx * strength, ny * strength];
   }
 
@@ -776,7 +778,5 @@ console.log('Natural-selection headless analysis — metabolic cost sweep\n');
 const FRAMES = 21600;
 const RUNS = 25;
 
-runScenario('Final defaults (orbit fix applied)', RUNS, FRAMES);
-runScenario('Pre-orbit-fix baseline (catch=10, no boost)', RUNS, FRAMES, {
-  FOOD_CATCH_RADIUS: 10, FORAGE_CLOSE_BOOST: 0,
-});
+runScenario('Current defaults — no terrain', RUNS, FRAMES);
+runScenario('Current defaults — terrain 10', RUNS, FRAMES, { NUM_OBSTACLES: 10 });
