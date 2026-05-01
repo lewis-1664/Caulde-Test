@@ -40,7 +40,7 @@ const DEFAULT_PARAMS = {
   TRAIT_VARIATION: 0.10,
   MUTATION_STRENGTH: 0.08,
   REPRODUCE_PROB: 0.00010,
-  PREY_REPRODUCE_PROB: 0.00020,
+  PREY_REPRODUCE_PROB: 0.00030,
   PREDATOR_REPRODUCE_PROB: 0.00015,
   SPECIES_POP_CAP: [85, 85, 85, 12],
 
@@ -61,9 +61,14 @@ const DEFAULT_PARAMS = {
   FOOD_PATCH_MIN_SEPARATION: 140,
   FORAGE_CLOSE_BOOST: 1.0,
   FORAGE_TANGENT_DAMP: 0,
-  FOOD_RESTORE: 0.30,
+  FOOD_RESTORE: 0.40,
   PREY_ENERGY_DRAIN: 0.00020,
   PREDATOR_ENERGY_DRAIN: 0.00025,
+  PREDATOR_TORPOR_THRESHOLD: 0.50,
+  PREDATOR_TORPOR_MIN_MULT: 0.40,
+  PREDATOR_WANDER_DRAIN_MULT: 0.6,
+  CARRION_LIFETIME: 600,
+  CARRION_RESTORE: 0.20,
   PREDATOR_CATCH_RESTORE: 0.60,
   REPRODUCE_THRESHOLD: 0.65,
   REPRODUCE_COST: 0.30,
@@ -132,6 +137,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
   const founders = [];
   const obstacles = [];
   const food = [];
+  const carrion = [];
   let foodRespawnCounter = 0;
   const foodPatches = [];
   function regenerateFoodPatches() {
@@ -314,6 +320,10 @@ function runSimulation(seed, frames, overrideParams = {}) {
       for (const k of TRAIT_KEYS) traits[k] = b[k];
       founders.push({ species: s, traits, lineageDescendants: 0 });
     }
+  }
+  // Stagger initial ages so the founding cohort doesn't age in lockstep
+  for (const b of boids) {
+    b.age = Math.floor(rand() * P.MATURITY_AGE * 3);
   }
 
   function step() {
@@ -570,7 +580,17 @@ function runSimulation(seed, frames, overrideParams = {}) {
       const ageEnd = isPredator ? (P.PREDATOR_AGE_DRAIN_RAMP_END ?? P.AGE_DRAIN_RAMP_END) : P.AGE_DRAIN_RAMP_END;
       const ageT = Math.max(0, Math.min(1, (b.age - ageStart) / (ageEnd - ageStart)));
       const ageFactor = 1 + ageT * (P.MAX_AGE_DRAIN_MULT - 1);
-      b.energy -= (isPredator ? P.PREDATOR_ENERGY_DRAIN : P.PREY_ENERGY_DRAIN) * speedFactor * ageFactor;
+      let torporFactor = 1;
+      if (isPredator) {
+        if (b.energy < P.PREDATOR_TORPOR_THRESHOLD) {
+          const t = Math.max(0, b.energy) / P.PREDATOR_TORPOR_THRESHOLD;
+          torporFactor = P.PREDATOR_TORPOR_MIN_MULT + (1 - P.PREDATOR_TORPOR_MIN_MULT) * t;
+        }
+        if (!nearestPrey && b.satiated === 0) {
+          torporFactor *= P.PREDATOR_WANDER_DRAIN_MULT;
+        }
+      }
+      b.energy -= (isPredator ? P.PREDATOR_ENERGY_DRAIN : P.PREY_ENERGY_DRAIN) * speedFactor * ageFactor * torporFactor;
       if (!isPredator && food.length > 0) {
         const eatSq = P.FOOD_CATCH_RADIUS * P.FOOD_CATCH_RADIUS;
         for (let fi = food.length - 1; fi >= 0; fi--) {
@@ -646,8 +666,31 @@ function runSimulation(seed, frames, overrideParams = {}) {
 
     for (let i = boids.length - 1; i >= 0; i--) {
       if (boids[i].energy <= 0) {
-        boids[i].diedFrame = currentFrame;
+        const dead = boids[i];
+        dead.diedFrame = currentFrame;
+        if (dead.species !== PREDATOR_SPECIES) {
+          carrion.push({ x: dead.x, y: dead.y, age: 0 });
+        }
         boids.splice(i, 1);
+      }
+    }
+
+    // Carrion aging + scavenging
+    const carrionEatSq = P.CATCH_RADIUS * P.CATCH_RADIUS;
+    for (let ci = carrion.length - 1; ci >= 0; ci--) {
+      const c = carrion[ci];
+      c.age++;
+      if (c.age > P.CARRION_LIFETIME) { carrion.splice(ci, 1); continue; }
+      for (const b of boids) {
+        if (b.species !== PREDATOR_SPECIES) continue;
+        if (b.satiated > 0) continue;
+        const dx = b.x - c.x, dy = b.y - c.y;
+        if (dx * dx + dy * dy < carrionEatSq) {
+          b.energy = Math.min(1.0, b.energy + P.CARRION_RESTORE);
+          b.satiated = P.SATIETY_DURATION;
+          carrion.splice(ci, 1);
+          break;
+        }
       }
     }
 

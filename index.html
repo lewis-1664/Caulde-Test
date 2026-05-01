@@ -771,7 +771,7 @@
     const TRAIT_VARIATION = 0.10;
     const MUTATION_STRENGTH = 0.08;
     const REPRODUCE_PROB = 0.00010;
-    const PREY_REPRODUCE_PROB = 0.00020;
+    const PREY_REPRODUCE_PROB = 0.00030;
     const PREDATOR_REPRODUCE_PROB = 0.00015;
     const SPECIES_POP_CAP = [85, 85, 85, 12];
     // When a species is down to <= ENDANGERED_THRESHOLD individuals, multiply
@@ -785,9 +785,23 @@
     const FOOD_RESPAWN_INTERVAL = 30;
     const FOOD_SIZE = 4;
     const FOOD_CATCH_RADIUS = 12;
-    const FOOD_RESTORE = 0.30;
+    const FOOD_RESTORE = 0.40;
     const PREY_ENERGY_DRAIN = 0.00020;
     const PREDATOR_ENERGY_DRAIN = 0.00025;
+    // Predator torpor — drain multiplier ramps linearly from PREDATOR_TORPOR_MIN_MULT
+    // (at energy 0) up to 1.0 (at energy ≥ PREDATOR_TORPOR_THRESHOLD). Models real
+    // apex-predator behaviour of slowing metabolism in lean times so they can survive
+    // prey crashes long enough for prey to recover.
+    const PREDATOR_TORPOR_THRESHOLD = 0.50;
+    const PREDATOR_TORPOR_MIN_MULT = 0.40;
+    // Predator wandering: when no prey is in visible range AND not satiated, predator
+    // is "resting" rather than actively hunting → drain multiplied by this. Compounds
+    // with energy-based torpor.
+    const PREDATOR_WANDER_DRAIN_MULT = 0.6;
+    // Carrion: when prey starves it leaves a corpse predators can scavenge. Gives them
+    // an alternative food source during prey crashes (the exact crisis moment).
+    const CARRION_LIFETIME = 600;       // frames a corpse is edible (10 sec)
+    const CARRION_RESTORE = 0.20;       // less than a fresh kill
     const PREDATOR_CATCH_RESTORE = 0.60;
     const REPRODUCE_THRESHOLD = 0.65;
     const REPRODUCE_COST = 0.30;
@@ -884,8 +898,15 @@
         spawnBoid(Math.random() * viewW(), Math.random() * viewH(), 0, s);
       }
     }
+    // Stagger initial ages so the founding cohort doesn't age and die in lockstep.
+    // Spread across [0, 3 × MATURITY_AGE] ≈ juveniles to early-elderly, mixing
+    // generations from frame 0.
+    for (const b of boids) {
+      b.age = Math.floor(Math.random() * MATURITY_AGE * 3);
+    }
 
     const food = [];
+    const carrion = [];
     let foodRespawnCounter = 0;
     const FOOD_TERRAIN_BUFFER = 50;
     // Food clumping — food spawns near patch centres rather than uniformly.
@@ -1763,7 +1784,18 @@
         const ageEnd = isPredator ? PREDATOR_AGE_DRAIN_RAMP_END : AGE_DRAIN_RAMP_END;
         const ageT = Math.max(0, Math.min(1, (b.age - ageStart) / (ageEnd - ageStart)));
         const ageFactor = 1 + ageT * (MAX_AGE_DRAIN_MULT - 1);
-        b.energy -= (isPredator ? PREDATOR_ENERGY_DRAIN : PREY_ENERGY_DRAIN) * speedFactor * ageFactor;
+        let torporFactor = 1;
+        if (isPredator) {
+          if (b.energy < PREDATOR_TORPOR_THRESHOLD) {
+            const t = Math.max(0, b.energy) / PREDATOR_TORPOR_THRESHOLD;
+            torporFactor = PREDATOR_TORPOR_MIN_MULT + (1 - PREDATOR_TORPOR_MIN_MULT) * t;
+          }
+          // Wandering — no prey visible, not satiated → resting metabolism
+          if (!nearestPrey && b.satiated === 0) {
+            torporFactor *= PREDATOR_WANDER_DRAIN_MULT;
+          }
+        }
+        b.energy -= (isPredator ? PREDATOR_ENERGY_DRAIN : PREY_ENERGY_DRAIN) * speedFactor * ageFactor * torporFactor;
         if (!isPredator && food.length > 0) {
           const eatSq = FOOD_CATCH_RADIUS * FOOD_CATCH_RADIUS;
           for (let fi = food.length - 1; fi >= 0; fi--) {
@@ -1829,8 +1861,33 @@
 
       for (let i = boids.length - 1; i >= 0; i--) {
         if (boids[i].energy <= 0) {
-          starvedTally[boids[i].species]++;
+          const dead = boids[i];
+          starvedTally[dead.species]++;
+          // Prey corpses become carrion that predators can scavenge.
+          if (dead.species !== PREDATOR_SPECIES) {
+            carrion.push({ x: dead.x, y: dead.y, age: 0 });
+          }
           boids.splice(i, 1);
+        }
+      }
+
+      // Carrion aging + scavenging by nearby predators
+      const carrionEatSq = CATCH_RADIUS * CATCH_RADIUS;
+      for (let ci = carrion.length - 1; ci >= 0; ci--) {
+        const c = carrion[ci];
+        c.age++;
+        if (c.age > CARRION_LIFETIME) { carrion.splice(ci, 1); continue; }
+        // Any non-satiated predator within catch radius eats it
+        for (const b of boids) {
+          if (b.species !== PREDATOR_SPECIES) continue;
+          if (b.satiated > 0) continue;
+          const dx = b.x - c.x, dy = b.y - c.y;
+          if (dx * dx + dy * dy < carrionEatSq) {
+            b.energy = Math.min(1.0, b.energy + CARRION_RESTORE);
+            b.satiated = SATIETY_DURATION;
+            carrion.splice(ci, 1);
+            break;
+          }
         }
       }
 
@@ -2182,6 +2239,14 @@
       for (const f of food) {
         overlayCtx.beginPath();
         overlayCtx.arc(f.x, f.y, FOOD_SIZE, 0, Math.PI * 2);
+        overlayCtx.fill();
+      }
+      // Carrion — fading grey dots, alpha decays as they decompose
+      for (const c of carrion) {
+        const fadeT = 1 - c.age / CARRION_LIFETIME;
+        overlayCtx.fillStyle = `rgba(160, 130, 120, ${0.5 * fadeT})`;
+        overlayCtx.beginPath();
+        overlayCtx.arc(c.x, c.y, FOOD_SIZE + 1, 0, Math.PI * 2);
         overlayCtx.fill();
       }
       for (const o of obstacles) drawObstacle(o, overlayCtx);
