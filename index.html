@@ -387,6 +387,7 @@
       <div class="sel-stat"><span class="label">Avoid</span><span class="value" id="sel-avoid">-</span></div>
       <div class="sel-stat"><span class="label">Look</span><span class="value" id="sel-look">-</span></div>
       <div class="sel-stat"><span class="label">Kids</span><span class="value" id="sel-kids">-</span></div>
+      <div class="sel-stat"><span class="label">Energy</span><span class="value" id="sel-energy">-</span></div>
     </div>
   </div>
   <div class="species-stats" id="species-stats">
@@ -587,7 +588,7 @@
       { maxSpeed: 2.8, minSpeed: 1.4, alignFactor: 0.030, cohesionFactor: 0.0005,  separationFactor: 0.50, turnFactor: 0.15 },
       { maxSpeed: 2.8, minSpeed: 1.4, alignFactor: 0.030, cohesionFactor: 0.0005,  separationFactor: 0.50, turnFactor: 0.15 },
       { maxSpeed: 2.8, minSpeed: 1.4, alignFactor: 0.030, cohesionFactor: 0.0005,  separationFactor: 0.50, turnFactor: 0.15 },
-      { maxSpeed: 3.6, minSpeed: 1.8, alignFactor: 0.020, cohesionFactor: 0.00010, separationFactor: 0.50, turnFactor: 0.20 },
+      { maxSpeed: 3.0, minSpeed: 1.5, alignFactor: 0.020, cohesionFactor: 0.00010, separationFactor: 0.50, turnFactor: 0.20 },
     ];
     const DIFF_SPECIES_FACTOR = 0.5;
     const PURSUE_FORCE = 0.07;
@@ -598,7 +599,7 @@
     const ALARM_DECAY = 0.985;
     const ALARM_INHERIT = 0.85;
     const ALARM_THRESHOLD = 0.2;
-    const SPECIES_INITIAL = [15, 15, 15, 3];
+    const SPECIES_INITIAL = [15, 15, 15, 2];
     const EDGE_MARGIN = 90;
 
     let LOOK_AHEAD = 45;
@@ -625,8 +626,23 @@
 
     const TRAIT_VARIATION = 0.10;
     const MUTATION_STRENGTH = 0.08;
-    const REPRODUCE_PROB = 0.00005;
+    const REPRODUCE_PROB = 0.00010;
     const SPECIES_POP_CAP = [85, 85, 85, 12];
+
+    // Phase 2 — food + energy + starvation
+    const FOOD_INITIAL = 100;
+    const FOOD_RESPAWN_INTERVAL = 60;
+    const FOOD_SIZE = 4;
+    const FOOD_CATCH_RADIUS = 10;
+    const FOOD_RESTORE = 0.30;
+    const PREY_ENERGY_DRAIN = 0.00020;
+    const PREDATOR_ENERGY_DRAIN = 0.00025;
+    const PREDATOR_CATCH_RESTORE = 0.60;
+    const REPRODUCE_THRESHOLD = 0.65;
+    const REPRODUCE_COST = 0.30;
+    const INITIAL_ENERGY = 0.70;
+    const CHILD_ENERGY = 0.40;
+    const FORAGE_FORCE = 0.30;
     const TRAIT_BOUNDS = {
       maxSpeed:         [0.5, 6.0],
       minSpeed:         [0.3, 4.0],
@@ -673,6 +689,7 @@
         alarmDx: 0,
         alarmDy: 0,
         descendants: 0,
+        energy: INITIAL_ENERGY,
         maxSpeed:         clampTrait(v(sp.maxSpeed),         TRAIT_BOUNDS.maxSpeed),
         minSpeed:         clampTrait(v(sp.minSpeed),         TRAIT_BOUNDS.minSpeed),
         alignFactor:      clampTrait(v(sp.alignFactor),      TRAIT_BOUNDS.alignFactor),
@@ -689,6 +706,16 @@
         spawnBoid(Math.random() * viewW(), Math.random() * viewH(), 0, s);
       }
     }
+
+    const food = [];
+    let foodRespawnCounter = 0;
+    function spawnFood() {
+      food.push({
+        x: 30 + Math.random() * (viewW() - 60),
+        y: 30 + Math.random() * (viewH() - 60),
+      });
+    }
+    for (let i = 0; i < FOOD_INITIAL; i++) spawnFood();
 
     function addBoidsAt(x, y, count) {
       const actual = activeSpecies === PREDATOR_SPECIES ? 1 : count;
@@ -710,6 +737,7 @@
         alarmDx: 0,
         alarmDy: 0,
         descendants: 0,
+        energy: CHILD_ENERGY,
         maxSpeed:         m(parent.maxSpeed,         TRAIT_BOUNDS.maxSpeed),
         minSpeed:         m(parent.minSpeed,         TRAIT_BOUNDS.minSpeed),
         alignFactor:      m(parent.alignFactor,      TRAIT_BOUNDS.alignFactor),
@@ -886,6 +914,7 @@
       avoid: document.getElementById('sel-avoid'),
       look:  document.getElementById('sel-look'),
       kids:  document.getElementById('sel-kids'),
+      energy: document.getElementById('sel-energy'),
     };
     function clearSelection() {
       selectedBoid = null;
@@ -933,6 +962,7 @@
       selStats.avoid.textContent = b.diffSpeciesRange.toFixed(0);
       selStats.look.textContent  = b.lookAhead.toFixed(0);
       selStats.kids.textContent  = b.descendants;
+      selStats.energy.textContent = (b.energy * 100).toFixed(0) + '%';
     }
 
     function updateSpeciesStats() {
@@ -1172,6 +1202,23 @@
           b.vy += b.alarmDy * b.alarm * CONTAGION_FORCE;
         }
 
+        if (!isPredator && food.length > 0 && b.energy < 1.0) {
+          let foodDx = 0, foodDy = 0, foodDistSq = visualSq;
+          let foundFood = false;
+          for (const f of food) {
+            const dfx = b.x - f.x, dfy = b.y - f.y;
+            const dSq = dfx * dfx + dfy * dfy;
+            if (dSq < foodDistSq) { foodDistSq = dSq; foodDx = dfx; foodDy = dfy; foundFood = true; }
+          }
+          if (foundFood) {
+            const dist = Math.sqrt(foodDistSq) || 0.01;
+            const hunger = Math.max(0, 1 - b.energy);
+            const forage = hunger * FORAGE_FORCE;
+            b.vx += (-foodDx / dist) * forage;
+            b.vy += (-foodDy / dist) * forage;
+          }
+        }
+
         if (obstacles.length > 0) {
           let avoidFx = 0, avoidFy = 0;
           for (const o of obstacles) {
@@ -1232,19 +1279,53 @@
 
         b.x += b.vx;
         b.y += b.vy;
+        if (b.x < 0)  { b.x = 0; b.vx =  Math.abs(b.vx); }
+        if (b.x > w)  { b.x = w; b.vx = -Math.abs(b.vx); }
+        if (b.y < 0)  { b.y = 0; b.vy =  Math.abs(b.vy); }
+        if (b.y > h)  { b.y = h; b.vy = -Math.abs(b.vy); }
+        for (const o of obstacles) {
+          const d = obstacleSDF(o, b.x, b.y);
+          if (d < 0) {
+            const eps = 1.5;
+            const gx = obstacleSDF(o, b.x + eps, b.y) - d;
+            const gy = obstacleSDF(o, b.x, b.y + eps) - d;
+            const glen = Math.hypot(gx, gy) || 1;
+            const nx = gx / glen, ny = gy / glen;
+            b.x -= d * nx;
+            b.y -= d * ny;
+            const vDotN = b.vx * nx + b.vy * ny;
+            if (vDotN < 0) {
+              b.vx -= vDotN * nx;
+              b.vy -= vDotN * ny;
+            }
+          }
+        }
         if (b.satiated > 0) b.satiated--;
+        b.energy -= isPredator ? PREDATOR_ENERGY_DRAIN : PREY_ENERGY_DRAIN;
+        if (!isPredator && food.length > 0) {
+          const eatSq = FOOD_CATCH_RADIUS * FOOD_CATCH_RADIUS;
+          for (let fi = food.length - 1; fi >= 0; fi--) {
+            const fdx = b.x - food[fi].x, fdy = b.y - food[fi].y;
+            if (fdx * fdx + fdy * fdy < eatSq) {
+              food.splice(fi, 1);
+              b.energy = Math.min(1.0, b.energy + FOOD_RESTORE);
+              break;
+            }
+          }
+        }
       }
 
       const speciesCounts = [0, 0, 0, 0];
       for (const b of boids) speciesCounts[b.species]++;
       const offspring = [];
       for (const b of boids) {
-        if (b.species === PREDATOR_SPECIES) continue;
+        if (b.energy < REPRODUCE_THRESHOLD) continue;
         if (Math.random() >= REPRODUCE_PROB) continue;
         if (speciesCounts[b.species] >= SPECIES_POP_CAP[b.species]) continue;
         speciesCounts[b.species]++;
         offspring.push(reproduceFrom(b));
         b.descendants++;
+        b.energy -= REPRODUCE_COST;
       }
       if (offspring.length > 0) boids.push(...offspring);
 
@@ -1271,11 +1352,22 @@
         if (bestIdx !== -1) {
           toRemove.add(bestIdx);
           pred.satiated = SATIETY_DURATION;
+          pred.energy = Math.min(1.0, pred.energy + PREDATOR_CATCH_RESTORE);
         }
       }
       if (toRemove.size > 0) {
         const sorted = [...toRemove].sort((a, b) => b - a);
         for (const idx of sorted) boids.splice(idx, 1);
+      }
+
+      for (let i = boids.length - 1; i >= 0; i--) {
+        if (boids[i].energy <= 0) boids.splice(i, 1);
+      }
+
+      foodRespawnCounter++;
+      if (foodRespawnCounter >= FOOD_RESPAWN_INTERVAL) {
+        foodRespawnCounter = 0;
+        if (food.length < FOOD_INITIAL) spawnFood();
       }
     }
 
@@ -1417,6 +1509,33 @@
       c.stroke();
       c.setLineDash([]);
 
+      c.lineWidth = 1.5;
+      for (const b of watched) {
+        if (b.species === PREDATOR_SPECIES) continue;
+        if (b.energy >= 1.0) continue;
+        const watchedVisualSq = b.visualRange * b.visualRange;
+        let nearestFood = null;
+        let nearestFoodDistSq = watchedVisualSq;
+        for (const f of food) {
+          const dx = b.x - f.x, dy = b.y - f.y;
+          const dSq = dx * dx + dy * dy;
+          if (dSq < nearestFoodDistSq) { nearestFoodDistSq = dSq; nearestFood = f; }
+        }
+        if (nearestFood) {
+          const hunger = Math.max(0, 1 - b.energy);
+          const alpha = 0.45 + hunger * 0.5;
+          c.strokeStyle = `rgba(134, 239, 172, ${alpha})`;
+          c.fillStyle = `rgba(134, 239, 172, ${Math.min(1, alpha + 0.1)})`;
+          c.beginPath();
+          c.moveTo(b.x, b.y);
+          c.lineTo(nearestFood.x, nearestFood.y);
+          c.stroke();
+          c.beginPath();
+          c.arc(nearestFood.x, nearestFood.y, FOOD_SIZE + 2, 0, Math.PI * 2);
+          c.stroke();
+        }
+      }
+
       for (const b of watched) {
         const heading = Math.atan2(b.vy, b.vx);
         if (LOOK_AHEAD > 0) {
@@ -1483,7 +1602,8 @@
         ctx.rotate(angle);
         const fed = b.species === PREDATOR_SPECIES && b.satiated > 0;
         const fedMult = fed ? 0.55 : 1;
-        ctx.fillStyle = `hsl(${b.hue}, ${SPECIES_SAT[b.species] * fedMult}%, ${SPECIES_LIGHT[b.species] * fedMult}%)`;
+        const energyAlpha = 0.3 + 0.7 * Math.max(0, Math.min(1, b.energy));
+        ctx.fillStyle = `hsla(${b.hue}, ${SPECIES_SAT[b.species] * fedMult}%, ${SPECIES_LIGHT[b.species] * fedMult}%, ${energyAlpha})`;
         ctx.beginPath();
         if (b.species === PREDATOR_SPECIES) {
           ctx.moveTo(13, 0);
@@ -1501,6 +1621,12 @@
       }
 
       overlayCtx.clearRect(0, 0, viewW(), viewH());
+      overlayCtx.fillStyle = 'rgba(134, 239, 172, 0.85)';
+      for (const f of food) {
+        overlayCtx.beginPath();
+        overlayCtx.arc(f.x, f.y, FOOD_SIZE, 0, Math.PI * 2);
+        overlayCtx.fill();
+      }
       for (const o of obstacles) drawObstacle(o, overlayCtx);
       drawBrushIndicator(overlayCtx);
       if (inspectOn) drawInspectOverlay(overlayCtx);

@@ -14,12 +14,12 @@ const SPECIES = [
 const PREDATOR_SPECIES = 3;
 
 const DEFAULT_PARAMS = {
-  SPECIES_INITIAL: [15, 15, 15, 3],
+  SPECIES_INITIAL: [15, 15, 15, 2],
   SPECIES_PARAMS: [
     { maxSpeed: 2.8, minSpeed: 1.4, alignFactor: 0.030, cohesionFactor: 0.0005,  separationFactor: 0.50, turnFactor: 0.15 },
     { maxSpeed: 2.8, minSpeed: 1.4, alignFactor: 0.030, cohesionFactor: 0.0005,  separationFactor: 0.50, turnFactor: 0.15 },
     { maxSpeed: 2.8, minSpeed: 1.4, alignFactor: 0.030, cohesionFactor: 0.0005,  separationFactor: 0.50, turnFactor: 0.15 },
-    { maxSpeed: 3.6, minSpeed: 1.8, alignFactor: 0.020, cohesionFactor: 0.00010, separationFactor: 0.50, turnFactor: 0.20 },
+    { maxSpeed: 3.0, minSpeed: 1.5, alignFactor: 0.020, cohesionFactor: 0.00010, separationFactor: 0.50, turnFactor: 0.20 },
   ],
   PROTECTED_RANGE: 18,
   VISUAL_RANGE: 150,
@@ -39,7 +39,7 @@ const DEFAULT_PARAMS = {
 
   TRAIT_VARIATION: 0.10,
   MUTATION_STRENGTH: 0.08,
-  REPRODUCE_PROB: 0.00005,
+  REPRODUCE_PROB: 0.00010,
   SPECIES_POP_CAP: [85, 85, 85, 12],
 
   ARC_PROBE_COUNT: 5,
@@ -50,6 +50,20 @@ const DEFAULT_PARAMS = {
   OBSTACLE_REPEL_FORCE: 0.08,
   OBSTACLE_SIZE: 38,
   NUM_OBSTACLES: 0,
+
+  FOOD_INITIAL: 100,
+  FOOD_RESPAWN_INTERVAL: 60,
+  FOOD_CATCH_RADIUS: 10,
+  FOOD_RESTORE: 0.30,
+  PREY_ENERGY_DRAIN: 0.00020,
+  PREDATOR_ENERGY_DRAIN: 0.00025,
+  PREDATOR_CATCH_RESTORE: 0.60,
+  REPRODUCE_THRESHOLD: 0.65,
+  REPRODUCE_COST: 0.30,
+  INITIAL_ENERGY: 0.70,
+  CHILD_ENERGY: 0.40,
+  FORAGE_FORCE: 0.30,
+
   TRAIT_BOUNDS: {
     maxSpeed:         [0.5, 6.0],
     minSpeed:         [0.3, 4.0],
@@ -89,6 +103,15 @@ function runSimulation(seed, frames, overrideParams = {}) {
   const lifetimeBoids = [];
   const founders = [];
   const obstacles = [];
+  const food = [];
+  let foodRespawnCounter = 0;
+  function spawnFood() {
+    food.push({
+      x: 30 + rand() * (W - 60),
+      y: 30 + rand() * (H - 60),
+    });
+  }
+  for (let i = 0; i < P.FOOD_INITIAL; i++) spawnFood();
 
   // Generate circle obstacles in a jittered grid covering the play area
   if (P.NUM_OBSTACLES > 0) {
@@ -140,6 +163,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
       alarmDx: 0,
       alarmDy: 0,
       descendants: 0,
+      energy: P.INITIAL_ENERGY,
       founderId: -1,
       bornFrame: currentFrame,
       diedFrame: -1,
@@ -175,6 +199,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
       alarmDx: 0,
       alarmDy: 0,
       descendants: 0,
+      energy: P.CHILD_ENERGY,
       founderId: parent.founderId,
       bornFrame: currentFrame,
       diedFrame: -1,
@@ -312,6 +337,23 @@ function runSimulation(seed, frames, overrideParams = {}) {
         b.vy += b.alarmDy * b.alarm * P.CONTAGION_FORCE;
       }
 
+      if (!isPredator && food.length > 0 && b.energy < 1.0) {
+        let foodDx = 0, foodDy = 0, foodDistSq = visualSq;
+        let foundFood = false;
+        for (const f of food) {
+          const dfx = b.x - f.x, dfy = b.y - f.y;
+          const dSq = dfx * dfx + dfy * dfy;
+          if (dSq < foodDistSq) { foodDistSq = dSq; foodDx = dfx; foodDy = dfy; foundFood = true; }
+        }
+        if (foundFood) {
+          const dist = Math.sqrt(foodDistSq) || 0.01;
+          const hunger = Math.max(0, 1 - b.energy);
+          const forage = hunger * P.FORAGE_FORCE;
+          b.vx += (-foodDx / dist) * forage;
+          b.vy += (-foodDy / dist) * forage;
+        }
+      }
+
       if (obstacles.length > 0) {
         let avoidFx = 0, avoidFy = 0;
         for (const o of obstacles) {
@@ -360,15 +402,48 @@ function runSimulation(seed, frames, overrideParams = {}) {
 
       b.x += b.vx;
       b.y += b.vy;
+      if (b.x < 0)  { b.x = 0; b.vx =  Math.abs(b.vx); }
+      if (b.x > W)  { b.x = W; b.vx = -Math.abs(b.vx); }
+      if (b.y < 0)  { b.y = 0; b.vy =  Math.abs(b.vy); }
+      if (b.y > H)  { b.y = H; b.vy = -Math.abs(b.vy); }
+      for (const o of obstacles) {
+        const d = obstacleSDF(o, b.x, b.y);
+        if (d < 0) {
+          const eps = 1.5;
+          const gx = obstacleSDF(o, b.x + eps, b.y) - d;
+          const gy = obstacleSDF(o, b.x, b.y + eps) - d;
+          const glen = Math.hypot(gx, gy) || 1;
+          const nx = gx / glen, ny = gy / glen;
+          b.x -= d * nx;
+          b.y -= d * ny;
+          const vDotN = b.vx * nx + b.vy * ny;
+          if (vDotN < 0) {
+            b.vx -= vDotN * nx;
+            b.vy -= vDotN * ny;
+          }
+        }
+      }
       if (b.satiated > 0) b.satiated--;
+      b.energy -= isPredator ? P.PREDATOR_ENERGY_DRAIN : P.PREY_ENERGY_DRAIN;
+      if (!isPredator && food.length > 0) {
+        const eatSq = P.FOOD_CATCH_RADIUS * P.FOOD_CATCH_RADIUS;
+        for (let fi = food.length - 1; fi >= 0; fi--) {
+          const fdx = b.x - food[fi].x, fdy = b.y - food[fi].y;
+          if (fdx * fdx + fdy * fdy < eatSq) {
+            food.splice(fi, 1);
+            b.energy = Math.min(1.0, b.energy + P.FOOD_RESTORE);
+            break;
+          }
+        }
+      }
     }
 
-    // Reproduction pass (prey only)
+    // Reproduction pass (energy-gated, all species)
     const speciesCounts = [0, 0, 0, 0];
     for (const b of boids) speciesCounts[b.species]++;
     const offspring = [];
     for (const b of boids) {
-      if (b.species === PREDATOR_SPECIES) continue;
+      if (b.energy < P.REPRODUCE_THRESHOLD) continue;
       if (rand() >= P.REPRODUCE_PROB) continue;
       if (speciesCounts[b.species] >= P.SPECIES_POP_CAP[b.species]) continue;
       speciesCounts[b.species]++;
@@ -376,6 +451,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
       offspring.push(child);
       lifetimeBoids.push(child);
       b.descendants++;
+      b.energy -= P.REPRODUCE_COST;
       if (child.founderId >= 0 && child.founderId < founders.length) {
         founders[child.founderId].lineageDescendants++;
       }
@@ -403,6 +479,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
       if (bestIdx !== -1) {
         toRemove.add(bestIdx);
         pred.satiated = P.SATIETY_DURATION;
+        pred.energy = Math.min(1.0, pred.energy + P.PREDATOR_CATCH_RESTORE);
       }
     }
     if (toRemove.size > 0) {
@@ -411,6 +488,19 @@ function runSimulation(seed, frames, overrideParams = {}) {
         boids[idx].diedFrame = currentFrame;
         boids.splice(idx, 1);
       }
+    }
+
+    for (let i = boids.length - 1; i >= 0; i--) {
+      if (boids[i].energy <= 0) {
+        boids[i].diedFrame = currentFrame;
+        boids.splice(i, 1);
+      }
+    }
+
+    foodRespawnCounter++;
+    if (foodRespawnCounter >= P.FOOD_RESPAWN_INTERVAL) {
+      foodRespawnCounter = 0;
+      if (food.length < P.FOOD_INITIAL) spawnFood();
     }
   }
 
