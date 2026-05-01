@@ -94,7 +94,7 @@ In `step()`'s per-boid loop, in this order:
 
 After the per-boid loop:
 13. **Reproduction pass** — boids with `energy ≥ REPRODUCE_THRESHOLD` AND `age ≥ MATURITY_AGE` may spawn a mutated child (gated by per-species reproduce probability and `SPECIES_POP_CAP`); reproducing costs `REPRODUCE_COST` energy. Juveniles cannot reproduce. **Endangered boost**: when a species is down to ≤ `ENDANGERED_THRESHOLD` (2) individuals, their reproduction probability is multiplied by `ENDANGERED_REPRO_BOOST` (5) — prevents bad-luck extinction events where the last solo survivor never gets to breed.
-14. **Predator catch pass** — predators within `CATCH_RADIUS` of any prey eat one (closest), gaining `PREDATOR_CATCH_RESTORE` energy and entering a `SATIETY_DURATION` cooldown.
+14. **Predator catch pass** — predators within `CATCH_RADIUS` of any prey eat one (closest), gaining `PREDATOR_CATCH_RESTORE` energy and entering a satiety cooldown of `SATIETY_DURATION × energy_after_catch` frames (capped at `SATIETY_MIN` minimum). A predator that ended a hunt with full energy rests for the full 15s; one who barely scraped by at low energy hunts again sooner. Older predators drain faster, so they tend to catch at lower energy, so their satiety is shorter — age effect emerges implicitly without explicit age coefficients.
 15. **Starvation pass** — boids with `energy ≤ 0` are removed. Prey corpses become **carrion** that lasts `CARRION_LIFETIME` (600 frames / 10 sec) and can be scavenged by any non-satiated predator within `CATCH_RADIUS` for `CARRION_RESTORE` (0.20) energy. This gives predators an alternative food source during prey crashes — exactly the moment they're most vulnerable.
 16. **Food respawn** — one new dot every `FOOD_RESPAWN_INTERVAL` frames if below `FOOD_INITIAL`. **Food clumping**: food spawns near one of `NUM_FOOD_PATCHES` (10) invisible patch centres rather than uniform random, with each patch having `FOOD_PATCH_RADIUS` (60). Patches regenerate when terrain is randomised. Creates emergent foraging hotspots.
 17. **Heatmap update** — each live boid increments its species' cell in a `HEAT_CELL`-sized (30px) spatial grid; all cells decay by `HEAT_DECAY` (0.999/frame ≈ 12s half-life). Used by the heatmap overlay.
@@ -178,7 +178,8 @@ TRAIT_BOUNDS.contagionFactor: [0.01, 0.20]
 PACK_RANGE:              80                predators within this distance buff each other
 PACK_BONUS_PER_MATE:     0.4               +40% pursue strength per nearby ally
 
-SATIETY_DURATION:        900 frames        per-catch cooldown for predators (15 sec)
+SATIETY_DURATION:        900 frames        max per-catch cooldown (15 sec, scaled by energy)
+SATIETY_MIN:             60 frames         floor cooldown (1 sec) — a starving catch still has some rest
 EDGE_MARGIN:             90 px
 
 PROTECTED_RANGE:         18                same-species personal space
@@ -347,7 +348,7 @@ Headless characterisation of the shipping defaults (25 runs × 21600 frames = 6 
 |---|---|---|---|
 | 6-min, no terrain | 26 / 75 | 4 / 25 (16%) | 3.0 |
 | 6-min + terrain 10 | 30 / 75 | 7 / 25 (28%) | 3.2 |
-| **12-min, no terrain** | 9 / 45 | 7 / 15 (47%) | 1.8 |
+| **12-min, no terrain** | 11 / 45 | 5 / 15 (33%) | 2.6 |
 
 **Selection signal at 6 minutes:** `maxSpeed` is the dominantly selected trait — Pearson
 `r(founder maxSpeed, lineage descendants) ≈ +0.16 to +0.28` for all three prey species,
@@ -355,12 +356,13 @@ and mean trait drifts upward by ~7-10% over a run. Other traits (fleeFactor, lea
 contagionFactor) show no statistically meaningful selection at this run length.
 
 **Long-run dynamics:** A stack of structural mechanisms (predator torpor + wander-aware
-drain + carrion scavenging + age stagger + faster prey rebound) keeps the predator-prey
-system stable across multiple boom-bust cycles. Crimson 12-minute extinction rate is now
-47% (down from 87% with the original `SATIETY_DURATION = 600` defaults), with final mean
-1.8 and peak averages around 9-10 individuals. Predators handle both first-cycle prey
-crashes (via torpor + carrion) and second-cycle aging (via age stagger), so the species
-sustains across longer runs.
+drain + carrion scavenging + active carrion pursuit + age stagger + faster prey rebound +
+energy-scaled satiety) keeps the predator-prey system stable across multiple boom-bust
+cycles. Crimson 12-minute extinction rate is now 33% (down from 87% with the original
+defaults), with final mean 2.6 and peak averages around 9-10 individuals. Predators
+handle first-cycle prey crashes (via torpor + carrion), second-cycle aging (via age
+stagger), and metabolic mismatch (via energy-scaled satiety so hungry predators
+hunt sooner), so the species sustains across longer runs.
 
 ## Phase 3 (not implemented)
 

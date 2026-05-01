@@ -69,6 +69,7 @@ const DEFAULT_PARAMS = {
   PREDATOR_WANDER_DRAIN_MULT: 0.6,
   CARRION_LIFETIME: 600,
   CARRION_RESTORE: 0.20,
+  SATIETY_MIN: 60,
   PREDATOR_CATCH_RESTORE: 0.60,
   REPRODUCE_THRESHOLD: 0.65,
   REPRODUCE_COST: 0.30,
@@ -324,6 +325,10 @@ function runSimulation(seed, frames, overrideParams = {}) {
   // Stagger initial ages so the founding cohort doesn't age in lockstep
   for (const b of boids) {
     b.age = Math.floor(rand() * P.MATURITY_AGE * 3);
+  }
+
+  function predatorSatiety(p) {
+    return Math.max(P.SATIETY_MIN, Math.round(P.SATIETY_DURATION * p.energy));
   }
 
   function step() {
@@ -679,8 +684,8 @@ function runSimulation(seed, frames, overrideParams = {}) {
       }
       if (bestIdx !== -1) {
         toRemove.add(bestIdx);
-        pred.satiated = P.SATIETY_DURATION;
         pred.energy = Math.min(1.0, pred.energy + P.PREDATOR_CATCH_RESTORE);
+        pred.satiated = predatorSatiety(pred);
       }
     }
     if (toRemove.size > 0) {
@@ -714,7 +719,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
         const dx = b.x - c.x, dy = b.y - c.y;
         if (dx * dx + dy * dy < carrionEatSq) {
           b.energy = Math.min(1.0, b.energy + P.CARRION_RESTORE);
-          b.satiated = P.SATIETY_DURATION;
+          b.satiated = predatorSatiety(b);
           carrion.splice(ci, 1);
           break;
         }

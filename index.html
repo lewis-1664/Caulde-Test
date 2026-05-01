@@ -802,6 +802,17 @@
     // an alternative food source during prey crashes (the exact crisis moment).
     const CARRION_LIFETIME = 600;       // frames a corpse is edible (10 sec)
     const CARRION_RESTORE = 0.20;       // less than a fresh kill
+    const SATIETY_MIN = 60;             // floor for satiety so old/hungry predators don't go to ~0
+
+    // Predator satiety scales with post-catch fullness — a stuffed predator rests
+    // the full SATIETY_DURATION, a barely-fed one (e.g. carrion-only meal at low
+    // energy) hunts again sooner. Age effect emerges implicitly: older predators
+    // drain faster, so they're typically hungrier at catch, so their satiety is
+    // shorter, so they hunt more often. Self-correcting without an explicit age
+    // coefficient (which we tested — too aggressive, hammered prey).
+    function predatorSatiety(p) {
+      return Math.max(SATIETY_MIN, Math.round(SATIETY_DURATION * p.energy));
+    }
     const PREDATOR_CATCH_RESTORE = 0.60;
     const REPRODUCE_THRESHOLD = 0.65;
     const REPRODUCE_COST = 0.30;
@@ -1879,8 +1890,8 @@
         if (bestIdx !== -1) {
           toRemove.add(bestIdx);
           eatenTally[boids[bestIdx].species]++;
-          pred.satiated = SATIETY_DURATION;
           pred.energy = Math.min(1.0, pred.energy + PREDATOR_CATCH_RESTORE);
+          pred.satiated = predatorSatiety(pred);
         }
       }
       if (toRemove.size > 0) {
@@ -1913,7 +1924,7 @@
           const dx = b.x - c.x, dy = b.y - c.y;
           if (dx * dx + dy * dy < carrionEatSq) {
             b.energy = Math.min(1.0, b.energy + CARRION_RESTORE);
-            b.satiated = SATIETY_DURATION;
+            b.satiated = predatorSatiety(b);
             carrion.splice(ci, 1);
             break;
           }
