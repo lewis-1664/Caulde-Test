@@ -376,6 +376,10 @@
       background: rgba(252, 211, 77, 0.18);
       border-color: rgba(252, 211, 77, 0.55);
     }
+    .toolbar button[data-tool="heatmap"].active {
+      background: rgba(168, 85, 247, 0.18);
+      border-color: rgba(168, 85, 247, 0.55);
+    }
     .toolbar button svg { display: block; }
     .toolbar .sep {
       width: 1px;
@@ -550,6 +554,19 @@
         <path d="M -10 7 L -5 -2 L -1 4 L 4 -6 L 10 7 Z"/>
       </svg>
     </button>
+    <button data-tool="heatmap" title="Toggle species territory heatmap">
+      <svg width="22" height="22" viewBox="-12 -12 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+        <rect x="-9" y="-9" width="6" height="6" fill="currentColor" opacity="0.85"/>
+        <rect x="-3" y="-9" width="6" height="6" fill="currentColor" opacity="0.45"/>
+        <rect x="3"  y="-9" width="6" height="6" fill="currentColor" opacity="0.20"/>
+        <rect x="-9" y="-3" width="6" height="6" fill="currentColor" opacity="0.55"/>
+        <rect x="-3" y="-3" width="6" height="6" fill="currentColor" opacity="0.85"/>
+        <rect x="3"  y="-3" width="6" height="6" fill="currentColor" opacity="0.35"/>
+        <rect x="-9" y="3"  width="6" height="6" fill="currentColor" opacity="0.20"/>
+        <rect x="-3" y="3"  width="6" height="6" fill="currentColor" opacity="0.55"/>
+        <rect x="3"  y="3"  width="6" height="6" fill="currentColor" opacity="0.85"/>
+      </svg>
+    </button>
     <button data-tool="clear" title="Clear all obstacles">Clear</button>
   </div>
   <div class="stats" id="stats">
@@ -700,6 +717,55 @@
     const TRAIL_SAMPLE_INTERVAL = 3;
     const TRAIL_MAX_ALPHA = 0.5;
     const TRAIL_LINE_WIDTH = 2.5;
+
+    // Heatmap — per-species spatial density grid with exponential decay.
+    // 0.999 decay/frame ≈ 12s half-life, ~30s for cells to nearly fade.
+    const HEAT_CELL = 30;
+    const HEAT_DECAY = 0.999;
+    const HEAT_ALPHA_SCALE = 0.02;     // density × this = opacity (capped at HEAT_MAX_ALPHA)
+    const HEAT_MAX_ALPHA = 0.55;
+    let heatGridW = 0, heatGridH = 0;
+    const heatGrid = [null, null, null, null];
+    function ensureHeatGrid() {
+      const w = Math.ceil(viewW() / HEAT_CELL);
+      const h = Math.ceil(viewH() / HEAT_CELL);
+      if (w === heatGridW && h === heatGridH && heatGrid[0]) return;
+      heatGridW = w; heatGridH = h;
+      for (let s = 0; s < 4; s++) heatGrid[s] = new Float32Array(w * h);
+    }
+    function updateHeatmap() {
+      ensureHeatGrid();
+      // Decay all cells
+      for (let s = 0; s < 4; s++) {
+        const grid = heatGrid[s];
+        for (let i = 0; i < grid.length; i++) grid[i] *= HEAT_DECAY;
+      }
+      // Increment cell for each live boid
+      for (const b of boids) {
+        const cx = Math.floor(b.x / HEAT_CELL);
+        const cy = Math.floor(b.y / HEAT_CELL);
+        if (cx < 0 || cy < 0 || cx >= heatGridW || cy >= heatGridH) continue;
+        heatGrid[b.species][cy * heatGridW + cx] += 1;
+      }
+    }
+    function drawHeatmap(c) {
+      if (!heatmapOn || !heatGrid[0]) return;
+      for (let y = 0; y < heatGridH; y++) {
+        for (let x = 0; x < heatGridW; x++) {
+          const i = y * heatGridW + x;
+          let total = 0, dom = 0, domCount = 0;
+          for (let s = 0; s < 4; s++) {
+            const v = heatGrid[s][i];
+            total += v;
+            if (v > domCount) { domCount = v; dom = s; }
+          }
+          if (total < 0.5) continue;
+          const alpha = Math.min(HEAT_MAX_ALPHA, total * HEAT_ALPHA_SCALE);
+          c.fillStyle = `hsla(${SPECIES[dom].centerHue}, ${SPECIES_SAT[dom]}%, ${SPECIES_LIGHT[dom]}%, ${alpha})`;
+          c.fillRect(x * HEAT_CELL, y * HEAT_CELL, HEAT_CELL, HEAT_CELL);
+        }
+      }
+    }
     const INSPECT_PER_SPECIES = 2;
 
     const TRAIT_VARIATION = 0.10;
@@ -762,6 +828,7 @@
     let activeTool = null;
     let activeSpecies = 0;
     let inspectOn = false;
+    let heatmapOn = false;
     let paused = false;
     let selectedBoid = null;
     const obstacles = [];
@@ -1148,6 +1215,11 @@
         if (tool === 'inspect') {
           inspectOn = !inspectOn;
           btn.classList.toggle('active', inspectOn);
+          return;
+        }
+        if (tool === 'heatmap') {
+          heatmapOn = !heatmapOn;
+          btn.classList.toggle('active', heatmapOn);
           return;
         }
         if (tool === 'pause') {
@@ -1767,6 +1839,8 @@
         foodRespawnCounter = 0;
         if (food.length < FOOD_INITIAL) spawnFood();
       }
+
+      updateHeatmap();
     }
 
     function drawObstacle(o, c) {
@@ -2043,6 +2117,9 @@
       // Full clear — trails are drawn explicitly per boid below.
       ctx.fillStyle = '#0f1116';
       ctx.fillRect(0, 0, viewW(), viewH());
+
+      // Heatmap (if toggled on) goes behind everything else.
+      drawHeatmap(ctx);
 
       // Trails — fading line through each boid's recent positions, in species colour.
       ctx.lineCap = 'round';
