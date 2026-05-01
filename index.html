@@ -737,6 +737,8 @@
         descendants: 0,
         energy: INITIAL_ENERGY,
         age: 0,
+        framesStuck: 0,
+        stuckFood: null,
         maxSpeed:         clampTrait(v(sp.maxSpeed),         TRAIT_BOUNDS.maxSpeed),
         minSpeed:         clampTrait(v(sp.minSpeed),         TRAIT_BOUNDS.minSpeed),
         alignFactor:      clampTrait(v(sp.alignFactor),      TRAIT_BOUNDS.alignFactor),
@@ -798,6 +800,8 @@
         descendants: 0,
         energy: CHILD_ENERGY,
         age: 0,
+        framesStuck: 0,
+        stuckFood: null,
         maxSpeed:         m(parent.maxSpeed,         TRAIT_BOUNDS.maxSpeed),
         minSpeed:         m(parent.minSpeed,         TRAIT_BOUNDS.minSpeed),
         alignFactor:      m(parent.alignFactor,      TRAIT_BOUNDS.alignFactor),
@@ -1403,24 +1407,42 @@
           b.vy += b.alarmDy * b.alarm * b.contagionFactor;
         }
 
+        let stuckCirclingFood = false;
         if (!isPredator && food.length > 0 && b.energy < 1.0) {
           let foodDx = 0, foodDy = 0, foodDistSq = visualSq;
-          let foundFood = false;
+          let nearestFood = null;
           for (const f of food) {
             const dfx = b.x - f.x, dfy = b.y - f.y;
             const dSq = dfx * dfx + dfy * dfy;
-            if (dSq < foodDistSq) { foodDistSq = dSq; foodDx = dfx; foodDy = dfy; foundFood = true; }
+            if (dSq < foodDistSq) { foodDistSq = dSq; foodDx = dfx; foodDy = dfy; nearestFood = f; }
           }
-          if (foundFood) {
+          if (nearestFood) {
             const dist = Math.sqrt(foodDistSq) || 0.01;
             const ux = -foodDx / dist, uy = -foodDy / dist;
             const hunger = Math.max(0, 1 - b.energy);
-            // Stronger pull when close — tightens the inward force as r shrinks, breaking orbits
+            // Stuck-circling detector: SAME food (must be the same object as last frame),
+            // in the orbital band (just outside catch radius, inside 25px), and not actually
+            // approaching it (radial speed near zero). Switching to a different food resets.
+            const speedTowardFood = b.vx * ux + b.vy * uy;
+            const sameFoodAsLast = b.stuckFood === nearestFood;
+            if (sameFoodAsLast && dist > FOOD_CATCH_RADIUS && dist < 25 && speedTowardFood < 0.3) {
+              b.framesStuck++;
+            } else {
+              b.framesStuck = 0;
+            }
+            b.stuckFood = nearestFood;
+            if (b.framesStuck > 20) stuckCirclingFood = true;
             const closeBoost = 1 + Math.max(0, 1 - dist / 30) * 1.0;
             const forage = hunger * b.forageFactor * closeBoost;
             b.vx += ux * forage;
             b.vy += uy * forage;
+          } else {
+            b.framesStuck = 0;
+            b.stuckFood = null;
           }
+        } else {
+          b.framesStuck = 0;
+          b.stuckFood = null;
         }
 
         if (obstacles.length > 0) {
@@ -1476,7 +1498,9 @@
         if (speed > b.maxSpeed) {
           b.vx = (b.vx / speed) * b.maxSpeed;
           b.vy = (b.vy / speed) * b.maxSpeed;
-        } else if (speed < b.minSpeed && speed > 0) {
+        } else if (speed < b.minSpeed && speed > 0 && !stuckCirclingFood) {
+          // Normal min-speed clamp — waived only when stuck circling the same food
+          // for ~1/3 second, so the boid can decelerate enough to actually catch it.
           b.vx = (b.vx / speed) * b.minSpeed;
           b.vy = (b.vy / speed) * b.minSpeed;
         }

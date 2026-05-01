@@ -195,6 +195,8 @@ function runSimulation(seed, frames, overrideParams = {}) {
       descendants: 0,
       energy: P.INITIAL_ENERGY,
       age: 0,
+      framesStuck: 0,
+      stuckFood: null,
       founderId: -1,
       bornFrame: currentFrame,
       diedFrame: -1,
@@ -237,6 +239,8 @@ function runSimulation(seed, frames, overrideParams = {}) {
       descendants: 0,
       energy: P.CHILD_ENERGY,
       age: 0,
+      framesStuck: 0,
+      stuckFood: null,
       founderId: parent.founderId,
       bornFrame: currentFrame,
       diedFrame: -1,
@@ -387,23 +391,39 @@ function runSimulation(seed, frames, overrideParams = {}) {
         b.vy += b.alarmDy * b.alarm * b.contagionFactor;
       }
 
+      let stuckCirclingFood = false;
       if (!isPredator && food.length > 0 && b.energy < 1.0) {
         let foodDx = 0, foodDy = 0, foodDistSq = visualSq;
-        let foundFood = false;
+        let nearestFood = null;
         for (const f of food) {
           const dfx = b.x - f.x, dfy = b.y - f.y;
           const dSq = dfx * dfx + dfy * dfy;
-          if (dSq < foodDistSq) { foodDistSq = dSq; foodDx = dfx; foodDy = dfy; foundFood = true; }
+          if (dSq < foodDistSq) { foodDistSq = dSq; foodDx = dfx; foodDy = dfy; nearestFood = f; }
         }
-        if (foundFood) {
+        if (nearestFood) {
           const dist = Math.sqrt(foodDistSq) || 0.01;
           const ux = -foodDx / dist, uy = -foodDy / dist;
           const hunger = Math.max(0, 1 - b.energy);
+          const speedTowardFood = b.vx * ux + b.vy * uy;
+          const sameFoodAsLast = b.stuckFood === nearestFood;
+          if (sameFoodAsLast && dist > P.FOOD_CATCH_RADIUS && dist < 25 && speedTowardFood < 0.3) {
+            b.framesStuck++;
+          } else {
+            b.framesStuck = 0;
+          }
+          b.stuckFood = nearestFood;
+          if (b.framesStuck > 20) stuckCirclingFood = true;
           const closeBoost = 1 + Math.max(0, 1 - dist / 30) * P.FORAGE_CLOSE_BOOST;
           const forage = hunger * b.forageFactor * closeBoost;
           b.vx += ux * forage;
           b.vy += uy * forage;
+        } else {
+          b.framesStuck = 0;
+          b.stuckFood = null;
         }
+      } else {
+        b.framesStuck = 0;
+        b.stuckFood = null;
       }
 
       if (obstacles.length > 0) {
@@ -447,7 +467,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
       if (speed > b.maxSpeed) {
         b.vx = (b.vx / speed) * b.maxSpeed;
         b.vy = (b.vy / speed) * b.maxSpeed;
-      } else if (speed < b.minSpeed && speed > 0) {
+      } else if (speed < b.minSpeed && speed > 0 && !stuckCirclingFood) {
         b.vx = (b.vx / speed) * b.minSpeed;
         b.vy = (b.vy / speed) * b.minSpeed;
       }
@@ -778,5 +798,5 @@ console.log('Natural-selection headless analysis — metabolic cost sweep\n');
 const FRAMES = 21600;
 const RUNS = 25;
 
-runScenario('Current defaults — no terrain', RUNS, FRAMES);
-runScenario('Current defaults — terrain 10', RUNS, FRAMES, { NUM_OBSTACLES: 10 });
+runScenario('With stuck-circling brake (no terrain)', RUNS, FRAMES);
+runScenario('With stuck-circling brake (terrain 10)', RUNS, FRAMES, { NUM_OBSTACLES: 10 });
