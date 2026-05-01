@@ -676,6 +676,7 @@
     const CHILD_ENERGY = 0.40;
     const FORAGE_FORCE = 0.30;
     const FORAGE_ENERGY_THRESHOLD = 0.80;  // boids above this ignore food (no path-bending)
+    const FORAGE_CONE_COS = 0.5;           // ±60° forward cone — food outside is ignored
     const PACK_RANGE = 80;
     const PACK_BONUS_PER_MATE = 0.4;
     const MATURITY_AGE = 900;
@@ -1412,10 +1413,25 @@
         if (!isPredator && food.length > 0 && b.energy < FORAGE_ENERGY_THRESHOLD) {
           let foodDx = 0, foodDy = 0, foodDistSq = visualSq;
           let nearestFood = null;
+          // Forward-cone filter: only consider food whose direction from the boid
+          // is within FORAGE_CONE_COS of the boid's heading. Food behind or far to
+          // the side is ignored, so a boid that has passed food can't lock back
+          // onto it and orbit. Filter is skipped when the boid is barely moving.
+          const speedSq = b.vx * b.vx + b.vy * b.vy;
+          const useCone = speedSq > 0.01;
           for (const f of food) {
             const dfx = b.x - f.x, dfy = b.y - f.y;
             const dSq = dfx * dfx + dfy * dfy;
-            if (dSq < foodDistSq) { foodDistSq = dSq; foodDx = dfx; foodDy = dfy; nearestFood = f; }
+            if (dSq >= foodDistSq) continue;
+            if (useCone) {
+              // dot of heading with direction-to-food, in non-normalised form:
+              // (vx, vy) · (-dfx, -dfy) = speed * d * cos(angle)
+              // We compare to cos(cone) by squaring (preserving sign separately).
+              const dotN = -b.vx * dfx - b.vy * dfy;
+              if (dotN <= 0) continue; // food is behind heading
+              if (dotN * dotN < FORAGE_CONE_COS * FORAGE_CONE_COS * speedSq * dSq) continue;
+            }
+            foodDistSq = dSq; foodDx = dfx; foodDy = dfy; nearestFood = f;
           }
           if (nearestFood) {
             const dist = Math.sqrt(foodDistSq) || 0.01;

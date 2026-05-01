@@ -68,6 +68,7 @@ const DEFAULT_PARAMS = {
   CHILD_ENERGY: 0.40,
   FORAGE_FORCE: 0.30,
   FORAGE_ENERGY_THRESHOLD: 0.80,
+  FORAGE_CONE_COS: 0.5,
   PACK_RANGE: 80,
   PACK_BONUS_PER_MATE: 0.4,
   MATURITY_AGE: 900,
@@ -396,10 +397,18 @@ function runSimulation(seed, frames, overrideParams = {}) {
       if (!isPredator && food.length > 0 && b.energy < P.FORAGE_ENERGY_THRESHOLD) {
         let foodDx = 0, foodDy = 0, foodDistSq = visualSq;
         let nearestFood = null;
+        const speedSq = b.vx * b.vx + b.vy * b.vy;
+        const useCone = speedSq > 0.01;
         for (const f of food) {
           const dfx = b.x - f.x, dfy = b.y - f.y;
           const dSq = dfx * dfx + dfy * dfy;
-          if (dSq < foodDistSq) { foodDistSq = dSq; foodDx = dfx; foodDy = dfy; nearestFood = f; }
+          if (dSq >= foodDistSq) continue;
+          if (useCone) {
+            const dotN = -b.vx * dfx - b.vy * dfy;
+            if (dotN <= 0) continue;
+            if (dotN * dotN < P.FORAGE_CONE_COS * P.FORAGE_CONE_COS * speedSq * dSq) continue;
+          }
+          foodDistSq = dSq; foodDx = dfx; foodDy = dfy; nearestFood = f;
         }
         if (nearestFood) {
           const dist = Math.sqrt(foodDistSq) || 0.01;
@@ -810,5 +819,5 @@ console.log('Natural-selection headless analysis — metabolic cost sweep\n');
 const FRAMES = 21600;
 const RUNS = 25;
 
-runScenario('Final defaults — forage threshold 0.80', RUNS, FRAMES);
+runScenario('Final defaults — ±60° forage cone', RUNS, FRAMES);
 runScenario('Final defaults — terrain 10', RUNS, FRAMES, { NUM_OBSTACLES: 10 });
