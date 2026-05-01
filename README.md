@@ -63,21 +63,25 @@ SPECIES_PARAMS[0..2] // Sky/Sun/Lime — same base stats
 SPECIES_PARAMS[3]    // Crimson — predator (faster, sparser flocking)
 ```
 
-### Per-boid traits (Phase 1)
+### Per-boid traits (14 total)
 
-Every boid has 9 mutable traits, stored on the boid object:
-`maxSpeed, minSpeed, alignFactor, cohesionFactor, separationFactor, turnFactor,
-visualRange, diffSpeciesRange, lookAhead`.
+Every boid has 14 mutable traits, stored as flat properties on the boid object.
 
-At spawn each is the species default × `(1 ± TRAIT_VARIATION)`, clamped by `TRAIT_BOUNDS`.
+**Physical traits (9):** `maxSpeed, minSpeed, alignFactor, cohesionFactor, separationFactor, turnFactor, visualRange, diffSpeciesRange, lookAhead`.
+
+**Behavioral traits (5):** `fleeFactor, pursueFactor, forageFactor, contagionFactor, leadFactor`. These are per-boid versions of the previously-global force constants — each boid has its own "personality" for how strongly it reacts to fleeing, pursuing prey, foraging for food, panicking with the herd, or leading targets when chasing.
+
+At spawn each trait is the species default × `(1 ± TRAIT_VARIATION)`, clamped by `TRAIT_BOUNDS`.
 On reproduction, each child trait is the parent value × `(1 ± MUTATION_STRENGTH)`, clamped.
+
+`TRAIT_KEYS` in `sim/run-experiments.js` is the canonical list — keep it synced when adding/removing traits.
 
 ### Forces applied each frame
 
 In `step()`'s per-boid loop, in this order:
 1. **Same-species flocking** (alignment, cohesion, separation) — only with own species, in `b.visualRange`.
 2. **Cross-species avoidance** — only between non-predator/non-predator pairs, within `b.diffSpeciesRange`.
-3. **Predator-prey** — predators pursue closest prey within `b.visualRange`; prey flee with distance-scaled strength `b.visualRange / max(dist, 25) × FLEE_FORCE`.
+3. **Predator-prey** — predators do **predictive pursuit**: aim at where the prey will be in `dist / maxSpeed` frames, scaled by the predator's evolved `leadFactor` (default 0.7). Pursue force is also multiplied by a **pack hunting bonus** `1 + packMates × PACK_BONUS_PER_MATE`, where `packMates` is the number of fellow predators within `PACK_RANGE`. Prey flee with distance-scaled strength `b.visualRange / max(dist, 25) × b.fleeFactor`.
 4. **Fear contagion** — prey absorb alarm from same-species neighbors and flee in the inherited direction even when they don't see the predator themselves.
 5. **Foraging (Phase 2)** — prey below full energy steer toward nearest visible food; force scales with hunger `(1 - energy)`.
 6. **Obstacle avoidance** — soft repulsion (SDF gradient × strength); 5-probe forward arc spans `±50°` so lateral obstacles are detected; total capped by `MAX_AVOID_FORCE`.
@@ -86,7 +90,7 @@ In `step()`'s per-boid loop, in this order:
 9. **Speed clamp** — to `[b.minSpeed, b.maxSpeed]`.
 10. **Position update + hard viewport clamp** — boids cannot leave the canvas.
 11. **Hard obstacle collision** — if SDF < 0 after move, push to surface and zero inward velocity component (slide along wall).
-12. **Energy drain** + **food eating** (Phase 2).
+12. **Energy drain** + **food eating** (Phase 2). Drain is multiplied by a **metabolic cost** `1 + max(0, maxSpeed - baseline)² × 1.5` where `baseline` is 2.8 for prey, 3.0 for predator — so unbounded speed evolution is self-limiting via energy cost.
 
 After the per-boid loop:
 13. **Reproduction pass** — boids with `energy ≥ REPRODUCE_THRESHOLD` may spawn a mutated child (gated by `REPRODUCE_PROB` and `SPECIES_POP_CAP`); reproducing costs `REPRODUCE_COST` energy.
@@ -94,7 +98,7 @@ After the per-boid loop:
 15. **Starvation pass** — boids with `energy ≤ 0` are removed.
 16. **Food respawn** — one new dot every `FOOD_RESPAWN_INTERVAL` frames if below `FOOD_INITIAL`.
 
-### Inspect overlay (top-right toolbar eye icon)
+### Inspect overlay (toolbar eye icon)
 
 Picks **all predators** + 2 of each prey species. Draws:
 - Faint species-colored ring at `visualRange`.
@@ -110,7 +114,7 @@ Picks **all predators** + 2 of each prey species. Draws:
 ## Key tuning constants (current defaults on `natural-selection` branch)
 
 ```
-NUM_OBSTACLES (live):    user-placed via toolbar
+NUM_OBSTACLES (live):    user-placed via toolbar (or randomized via "Random Map" button)
 SPECIES_INITIAL:         [15, 15, 15, 2]   prey species + predator initial pop
 SPECIES_POP_CAP:         [85, 85, 85, 12]  reproduction stops at cap
 
@@ -120,22 +124,33 @@ REPRODUCE_COST:          0.30              energy spent on reproduction
 INITIAL_ENERGY:          0.70
 CHILD_ENERGY:            0.40
 
-PREY_ENERGY_DRAIN:       0.00020           per frame
+PREY_ENERGY_DRAIN:       0.00020           per frame, multiplied by metabolic cost
 PREDATOR_ENERGY_DRAIN:   0.00025           higher than prey — predators self-limit
+Metabolic cost:          quadratic-excess  drain × (1 + max(0, maxSpeed - baseline)² × 1.5)
+                                           baseline: 2.8 for prey, 3.0 for predator
+FOOD_INITIAL:            150               at start, also the cap
+FOOD_RESPAWN_INTERVAL:   30 frames         (~2 food/sec respawn)
 FOOD_RESTORE:            0.30              per food eaten
 PREDATOR_CATCH_RESTORE:  0.60              per prey eaten
 
 TRAIT_VARIATION:         0.10              ±10% on spawn
 MUTATION_STRENGTH:       0.08              ±8% per generation
 TRAIT_BOUNDS.maxSpeed:   [0.5, 6.0]
-PURSUE_FORCE / FLEE_FORCE: 0.07 / 0.10     scaled by visualRange / max(dist, 25)
-FORAGE_FORCE:            0.30              scaled by hunger (1 - energy)
+TRAIT_BOUNDS.leadFactor: [0.0, 2.0]        predictive aim multiplier (0 = no prediction)
+TRAIT_BOUNDS.fleeFactor:    [0.02, 0.30]
+TRAIT_BOUNDS.pursueFactor:  [0.02, 0.20]
+TRAIT_BOUNDS.forageFactor:  [0.05, 0.60]
+TRAIT_BOUNDS.contagionFactor: [0.01, 0.20]
+
+PACK_RANGE:              80                predators within this distance buff each other
+PACK_BONUS_PER_MATE:     0.4               +40% pursue strength per nearby ally
+
 SATIETY_DURATION:        600 frames        per-catch cooldown for predators
 EDGE_MARGIN:             90 px
 
 PROTECTED_RANGE:         18                same-species personal space
 DIFF_SPECIES_RANGE:      38                cross-species avoid range
-LOOK_AHEAD:              45                obstacle probe distance
+LOOK_AHEAD:              45                obstacle probe distance (used as default, then per-boid)
 ```
 
 The species-stats panel (bottom-left) displays live **mean** values across each species'
@@ -144,10 +159,11 @@ population, so when you tune you can watch traits drift.
 ## UI tour
 
 - **Canvas**: full viewport. Pause (space or toolbar button) to freeze; click any boid to select it (white ring + top-center stats panel showing its individual traits).
-- **Toolbar (bottom-center)**: pause | obstacle shapes (circle/square/triangle) | add/remove boid brushes | mouse repel | inspect | clear obstacles.
+- **Toolbar (bottom-center)**: pause | obstacle shapes (circle/square/triangle) | add/remove boid brushes | mouse repel | inspect | randomize map | clear obstacles.
+- **Random Map** (jagged-mountains icon): clears current obstacles and generates 3-5 clusters of organic terrain (rocks/blobs/capsules) plus 4-9 isolated features. Stone-gray colored to distinguish from manually-placed pink obstacles.
 - **Stats (bottom-right)**: species color picker (selects target for add/remove brush) → population history graph → per-species counts + FPS.
-- **Species traits (bottom-left)**: live trait averages per species; columns are Speed, Align, Coh, Sep, Turn, View, Avoid, Look.
-- **Selected boid (top-center, when one is selected)**: that boid's species, state (calm/alarmed/hunting/fed), all 9 traits + Kids count + Energy %.
+- **Species traits (bottom-left)**: live trait averages per species; 12 columns: Speed, Align, Coh, Sep, Turn, View, Avoid, Look, Flee, Purs, Forg, Alrm.
+- **Selected boid (top-center, when one is selected)**: that boid's species, state (calm/alarmed/hunting/fed), all 13 trait values + Kids count + Energy %.
 
 ## Headless analysis runner
 
@@ -174,29 +190,54 @@ behavior.
 - **Predator drain > prey drain.** This is a deliberate balancing knob: predators self-limit
   by starving when prey are scarce, preventing the population blow-up that wiped out prey
   in earlier tunings.
+- **Metabolic cost is quadratic in excess speed.** A boid with `maxSpeed = 3.5` (vs the 2.8
+  prey baseline) drains energy 1.74× faster, at 4.0 it's nearly 4×. This creates a soft
+  evolutionary ceiling around `baseline + 0.3` without a hard cap. The exponent and
+  multiplier (1.5) are tunable in `step()`. Per-species baseline (predator 3.0, prey 2.8)
+  prevents the cost from punishing predators at their default speed.
+- **Pack hunting + predictive pursuit replace raw speed advantage.** Predators don't have
+  to be much faster than prey — they coordinate (`PACK_RANGE`/`PACK_BONUS_PER_MATE`) and
+  aim ahead of moving targets (`leadFactor` × `dist / maxSpeed`). This lets the system
+  stay balanced when prey evolve faster, since predators can compensate via teamwork and
+  smarter aim instead of needing to evolve faster top speed.
 - **Reproduction is energy-gated** in Phase 2; it ignores per-frame randomness when below
   `REPRODUCE_THRESHOLD`. Reducing the threshold makes the system more fertile but weakens
   selection (everyone reproduces).
 - **Obstacles are doubly enforced**: soft SDF repulsion for graceful avoidance + hard
   collision push-out for safety. Don't remove the hard collision — strong flee/pursue can
   overcome the soft force.
+- **Behavioral traits are just per-boid copies of formerly-global force constants** —
+  `fleeFactor` replaces `FLEE_FORCE`, etc. The constants still exist as defaults for
+  spawning, but the actual force application uses `b.fleeFactor`. Same pattern lets us
+  add more evolveable knobs trivially.
 - **Per-boid traits are just regular fields on the boid object** (`b.maxSpeed` etc.) rather
   than a sub-object. Adding a new trait means: declare bounds, add to `spawnBoid` and
   `reproduceFrom`, use the per-boid value in `step()`, expose it in the stats and selected
   panels.
+- **Map randomizer creates clustered terrain** with three organic shape types beyond the
+  user-placeable circle/square/triangle: polygons (rocks), blobs (overlapping circles),
+  and capsules (rounded rectangles). All share the same SDF-based avoidance system. Add
+  more shape types by adding an SDF, a generator, and an `obstacleSDF`/`drawObstacle` case.
 
 ## Tips for extending
 
-- **Add a new trait**: 9 trait keys live in `TRAIT_KEYS` in `sim/run-experiments.js` and are
+- **Add a new trait**: trait keys live in `TRAIT_KEYS` in `sim/run-experiments.js` and are
   hardcoded as object properties in `index.html`'s `spawnBoid`/`reproduceFrom`. To add one:
   bound in `TRAIT_BOUNDS`, add to spawn/reproduce, use in `step()`, mirror in headless,
   add a column to the species-stats panel + a cell to the selected-boid panel.
 - **Add a new force**: insert it in `step()`'s per-boid loop, after the existing forces and
   before edge/clamp. Mirror in headless.
+- **Add a new obstacle/terrain shape**: write an SDF function, add a `make<Shape>` generator,
+  add a case to `obstacleSDF` and `drawObstacle`. The hard-collision pass uses the SDF
+  generically so no other code changes are needed.
 - **Add UI**: panels follow the pattern `position: fixed` with backdrop-blur cards. The
   overlay canvas is the right place to draw any selection-time visualization.
 - **Verify changes don't break analysis**: run `node sim/run-experiments.js` and check that
   populations don't immediately go extinct. If they do, the change is too punishing.
+- **Test parameter sweeps in headless**: edit the scenarios at the bottom of
+  `sim/run-experiments.js`. The runner already supports overriding any constant via
+  `runScenario(name, runs, frames, { CONSTANT: value, ... })`. Useful for finding stable
+  tunings before applying to the live HTML.
 
 ## Phase 3 (not implemented)
 
