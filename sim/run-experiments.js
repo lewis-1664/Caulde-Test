@@ -55,7 +55,9 @@ const DEFAULT_PARAMS = {
 
   FOOD_INITIAL: 150,
   FOOD_RESPAWN_INTERVAL: 30,
-  FOOD_CATCH_RADIUS: 10,
+  FOOD_CATCH_RADIUS: 12,
+  FORAGE_CLOSE_BOOST: 1.0,
+  FORAGE_TANGENT_DAMP: 0,
   FOOD_RESTORE: 0.30,
   PREY_ENERGY_DRAIN: 0.00020,
   PREDATOR_ENERGY_DRAIN: 0.00025,
@@ -393,10 +395,12 @@ function runSimulation(seed, frames, overrideParams = {}) {
         }
         if (foundFood) {
           const dist = Math.sqrt(foodDistSq) || 0.01;
+          const ux = -foodDx / dist, uy = -foodDy / dist;
           const hunger = Math.max(0, 1 - b.energy);
-          const forage = hunger * b.forageFactor;
-          b.vx += (-foodDx / dist) * forage;
-          b.vy += (-foodDy / dist) * forage;
+          const closeBoost = 1 + Math.max(0, 1 - dist / 30) * P.FORAGE_CLOSE_BOOST;
+          const forage = hunger * b.forageFactor * closeBoost;
+          b.vx += ux * forage;
+          b.vy += uy * forage;
         }
       }
 
@@ -772,9 +776,7 @@ console.log('Natural-selection headless analysis — metabolic cost sweep\n');
 const FRAMES = 21600;
 const RUNS = 25;
 
-runScenario('Aging defaults — pred slow-age 4000-12000', RUNS, FRAMES);
-runScenario('Same, but no aging at all (control)', RUNS, FRAMES, {
-  AGE_DRAIN_RAMP_START: 100000, AGE_DRAIN_RAMP_END: 200000,
-  PREDATOR_AGE_DRAIN_RAMP_START: 100000, PREDATOR_AGE_DRAIN_RAMP_END: 200000,
-  MATURITY_AGE: 0, PREDATOR_MATURITY_AGE: 0,
+runScenario('Final defaults (orbit fix applied)', RUNS, FRAMES);
+runScenario('Pre-orbit-fix baseline (catch=10, no boost)', RUNS, FRAMES, {
+  FOOD_CATCH_RADIUS: 10, FORAGE_CLOSE_BOOST: 0,
 });
