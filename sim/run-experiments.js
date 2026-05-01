@@ -63,6 +63,8 @@ const DEFAULT_PARAMS = {
   INITIAL_ENERGY: 0.70,
   CHILD_ENERGY: 0.40,
   FORAGE_FORCE: 0.30,
+  PACK_RANGE: 80,
+  PACK_BONUS_PER_MATE: 0.4,
   METABOLIC_MODE: 'quadratic-excess',
   METABOLIC_PARAM: 1.5,
 
@@ -80,10 +82,11 @@ const DEFAULT_PARAMS = {
     pursueFactor:     [0.02, 0.20],
     forageFactor:     [0.05, 0.60],
     contagionFactor:  [0.01, 0.20],
+    leadFactor:       [0.0, 2.0],
   },
 };
 
-const TRAIT_KEYS = ['maxSpeed', 'minSpeed', 'alignFactor', 'cohesionFactor', 'separationFactor', 'turnFactor', 'visualRange', 'diffSpeciesRange', 'lookAhead', 'fleeFactor', 'pursueFactor', 'forageFactor', 'contagionFactor'];
+const TRAIT_KEYS = ['maxSpeed', 'minSpeed', 'alignFactor', 'cohesionFactor', 'separationFactor', 'turnFactor', 'visualRange', 'diffSpeciesRange', 'lookAhead', 'fleeFactor', 'pursueFactor', 'forageFactor', 'contagionFactor', 'leadFactor'];
 
 function mulberry32(seed) {
   let s = seed >>> 0;
@@ -186,6 +189,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
       pursueFactor:     clampTrait(v(P.PURSUE_FORCE),      P.TRAIT_BOUNDS.pursueFactor),
       forageFactor:     clampTrait(v(P.FORAGE_FORCE),      P.TRAIT_BOUNDS.forageFactor),
       contagionFactor:  clampTrait(v(P.CONTAGION_FORCE),   P.TRAIT_BOUNDS.contagionFactor),
+      leadFactor:       clampTrait(v(0.7),                 P.TRAIT_BOUNDS.leadFactor),
     };
     // Snapshot initial trait values for selection analysis
     b.initialTraits = {};
@@ -226,6 +230,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
       pursueFactor:     m(parent.pursueFactor,     P.TRAIT_BOUNDS.pursueFactor),
       forageFactor:     m(parent.forageFactor,     P.TRAIT_BOUNDS.forageFactor),
       contagionFactor:  m(parent.contagionFactor,  P.TRAIT_BOUNDS.contagionFactor),
+      leadFactor:       m(parent.leadFactor,       P.TRAIT_BOUNDS.leadFactor),
     };
     b.initialTraits = {};
     for (const k of TRAIT_KEYS) b.initialTraits[k] = b[k];
@@ -257,10 +262,12 @@ function runSimulation(seed, frames, overrideParams = {}) {
       let avgVx = 0, avgVy = 0;
       let avgX = 0, avgY = 0;
       let neighbors = 0;
-      let nearestPreyDx = 0, nearestPreyDy = 0, nearestPreyDistSq = visualSq;
-      let nearestPreyFound = false;
+      let nearestPrey = null;
+      let nearestPreyDistSq = visualSq;
       let fleeX = 0, fleeY = 0, fleeCount = 0;
       let inheritedAlarm = 0, inheritedAlarmDx = 0, inheritedAlarmDy = 0;
+      let packMates = 0;
+      const packRangeSq = P.PACK_RANGE * P.PACK_RANGE;
 
       for (const other of boids) {
         if (other === b) continue;
@@ -271,6 +278,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
         const otherIsPredator = other.species === PREDATOR_SPECIES;
 
         if (sameSpecies) {
+          if (isPredator && distSq < packRangeSq) packMates++;
           if (distSq < visualSq && other.alarm > inheritedAlarm) {
             inheritedAlarm = other.alarm;
             inheritedAlarmDx = other.alarmDx;
@@ -293,9 +301,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
             if (isPredator) {
               if (b.satiated <= 0 && distSq < nearestPreyDistSq) {
                 nearestPreyDistSq = distSq;
-                nearestPreyDx = dx;
-                nearestPreyDy = dy;
-                nearestPreyFound = true;
+                nearestPrey = other;
               }
             } else {
               const dist = Math.sqrt(distSq) || 0.01;
@@ -323,11 +329,18 @@ function runSimulation(seed, frames, overrideParams = {}) {
       b.vx += closeDx * b.separationFactor;
       b.vy += closeDy * b.separationFactor;
 
-      if (nearestPreyFound) {
+      if (nearestPrey) {
         const dist = Math.sqrt(nearestPreyDistSq) || 0.01;
+        const tti = dist / Math.max(b.maxSpeed, 0.5);
+        const targetX = nearestPrey.x + nearestPrey.vx * tti * b.leadFactor;
+        const targetY = nearestPrey.y + nearestPrey.vy * tti * b.leadFactor;
+        const dirX = targetX - b.x;
+        const dirY = targetY - b.y;
+        const dirLen = Math.hypot(dirX, dirY) || 0.01;
         const pursueStrength = b.visualRange / Math.max(dist, 25);
-        b.vx += (-nearestPreyDx / dist) * pursueStrength * b.pursueFactor;
-        b.vy += (-nearestPreyDy / dist) * pursueStrength * b.pursueFactor;
+        const packBonus = 1 + packMates * P.PACK_BONUS_PER_MATE;
+        b.vx += (dirX / dirLen) * pursueStrength * b.pursueFactor * packBonus;
+        b.vy += (dirY / dirLen) * pursueStrength * b.pursueFactor * packBonus;
       }
       if (fleeCount > 0) {
         b.vx += fleeX * b.fleeFactor;
@@ -399,7 +412,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
         b.vy += avoidFy;
       }
 
-      const edgeTurn = (isPredator && nearestPreyFound) ? b.turnFactor * 0.2 : b.turnFactor;
+      const edgeTurn = (isPredator && nearestPrey) ? b.turnFactor * 0.2 : b.turnFactor;
       if (b.x < P.EDGE_MARGIN)        b.vx += edgeTurn;
       if (b.x > W - P.EDGE_MARGIN)    b.vx -= edgeTurn;
       if (b.y < P.EDGE_MARGIN)        b.vy += edgeTurn;

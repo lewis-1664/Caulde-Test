@@ -667,6 +667,8 @@
     const INITIAL_ENERGY = 0.70;
     const CHILD_ENERGY = 0.40;
     const FORAGE_FORCE = 0.30;
+    const PACK_RANGE = 80;
+    const PACK_BONUS_PER_MATE = 0.4;
     const TRAIT_BOUNDS = {
       maxSpeed:         [0.5, 6.0],
       minSpeed:         [0.3, 4.0],
@@ -681,6 +683,7 @@
       pursueFactor:     [0.02, 0.20],
       forageFactor:     [0.05, 0.60],
       contagionFactor:  [0.01, 0.20],
+      leadFactor:       [0.0, 2.0],
     };
     function clampTrait(val, bounds) {
       return Math.max(bounds[0], Math.min(bounds[1], val));
@@ -731,6 +734,7 @@
         pursueFactor:     clampTrait(v(PURSUE_FORCE),        TRAIT_BOUNDS.pursueFactor),
         forageFactor:     clampTrait(v(FORAGE_FORCE),        TRAIT_BOUNDS.forageFactor),
         contagionFactor:  clampTrait(v(CONTAGION_FORCE),     TRAIT_BOUNDS.contagionFactor),
+        leadFactor:      clampTrait(v(0.7),                  TRAIT_BOUNDS.leadFactor),
       });
     }
     for (let s = 0; s < SPECIES.length; s++) {
@@ -783,6 +787,7 @@
         pursueFactor:     m(parent.pursueFactor,     TRAIT_BOUNDS.pursueFactor),
         forageFactor:     m(parent.forageFactor,     TRAIT_BOUNDS.forageFactor),
         contagionFactor:  m(parent.contagionFactor,  TRAIT_BOUNDS.contagionFactor),
+        leadFactor:      m(parent.leadFactor,        TRAIT_BOUNDS.leadFactor),
       };
     }
     function removeBoidsAt(x, y) {
@@ -1164,10 +1169,12 @@
         let avgVx = 0, avgVy = 0;
         let avgX = 0, avgY = 0;
         let neighbors = 0;
-        let nearestPreyDx = 0, nearestPreyDy = 0, nearestPreyDistSq = visualSq;
-        let nearestPreyFound = false;
+        let nearestPrey = null;
+        let nearestPreyDistSq = visualSq;
         let fleeX = 0, fleeY = 0, fleeCount = 0;
         let inheritedAlarm = 0, inheritedAlarmDx = 0, inheritedAlarmDy = 0;
+        let packMates = 0;
+        const packRangeSq = PACK_RANGE * PACK_RANGE;
 
         for (const other of boids) {
           if (other === b) continue;
@@ -1178,6 +1185,7 @@
           const otherIsPredator = other.species === PREDATOR_SPECIES;
 
           if (sameSpecies) {
+            if (isPredator && distSq < packRangeSq) packMates++;
             if (distSq < visualSq && other.alarm > inheritedAlarm) {
               inheritedAlarm = other.alarm;
               inheritedAlarmDx = other.alarmDx;
@@ -1200,9 +1208,7 @@
               if (isPredator) {
                 if (b.satiated <= 0 && distSq < nearestPreyDistSq) {
                   nearestPreyDistSq = distSq;
-                  nearestPreyDx = dx;
-                  nearestPreyDy = dy;
-                  nearestPreyFound = true;
+                  nearestPrey = other;
                 }
               } else {
                 const dist = Math.sqrt(distSq) || 0.01;
@@ -1232,11 +1238,18 @@
         b.vx += closeDx * b.separationFactor;
         b.vy += closeDy * b.separationFactor;
 
-        if (nearestPreyFound) {
+        if (nearestPrey) {
           const dist = Math.sqrt(nearestPreyDistSq) || 0.01;
+          const tti = dist / Math.max(b.maxSpeed, 0.5);
+          const targetX = nearestPrey.x + nearestPrey.vx * tti * b.leadFactor;
+          const targetY = nearestPrey.y + nearestPrey.vy * tti * b.leadFactor;
+          const dirX = targetX - b.x;
+          const dirY = targetY - b.y;
+          const dirLen = Math.hypot(dirX, dirY) || 0.01;
           const pursueStrength = b.visualRange / Math.max(dist, 25);
-          b.vx += (-nearestPreyDx / dist) * pursueStrength * b.pursueFactor;
-          b.vy += (-nearestPreyDy / dist) * pursueStrength * b.pursueFactor;
+          const packBonus = 1 + packMates * PACK_BONUS_PER_MATE;
+          b.vx += (dirX / dirLen) * pursueStrength * b.pursueFactor * packBonus;
+          b.vy += (dirY / dirLen) * pursueStrength * b.pursueFactor * packBonus;
         }
         if (fleeCount > 0) {
           b.vx += fleeX * b.fleeFactor;
@@ -1320,7 +1333,7 @@
           }
         }
 
-        const edgeTurn = (isPredator && nearestPreyFound) ? b.turnFactor * 0.2 : b.turnFactor;
+        const edgeTurn = (isPredator && nearestPrey) ? b.turnFactor * 0.2 : b.turnFactor;
         if (b.x < EDGE_MARGIN)         b.vx += edgeTurn;
         if (b.x > w - EDGE_MARGIN)     b.vx -= edgeTurn;
         if (b.y < EDGE_MARGIN)         b.vy += edgeTurn;
