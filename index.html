@@ -1585,7 +1585,36 @@
         b.vx += closeDx * b.separationFactor;
         b.vy += closeDy * b.separationFactor;
 
-        if (nearestPrey) {
+        // Carrion takes priority over live prey — stationary, can't escape
+        let nearestCarrion = null;
+        let nearestCarrionDistSq = visualSq;
+        if (isPredator && b.satiated <= 0 && carrion.length > 0) {
+          const speedSqB = b.vx * b.vx + b.vy * b.vy;
+          const useCone = speedSqB > 0.01;
+          for (const c of carrion) {
+            const dx = b.x - c.x, dy = b.y - c.y;
+            const dSq = dx * dx + dy * dy;
+            if (dSq >= nearestCarrionDistSq) continue;
+            if (useCone) {
+              const dotN = -b.vx * dx - b.vy * dy;
+              if (dotN <= 0) continue;
+              if (dotN * dotN < FORAGE_CONE_COS * FORAGE_CONE_COS * speedSqB * dSq) continue;
+            }
+            nearestCarrionDistSq = dSq;
+            nearestCarrion = c;
+          }
+        }
+
+        if (nearestCarrion) {
+          // Stationary target — straight-line pursuit, no lead needed
+          const dx = nearestCarrion.x - b.x;
+          const dy = nearestCarrion.y - b.y;
+          const dist = Math.sqrt(nearestCarrionDistSq) || 0.01;
+          const pursueStrength = b.visualRange / Math.max(dist, 25);
+          const packBonus = 1 + packMates * PACK_BONUS_PER_MATE;
+          b.vx += (dx / dist) * pursueStrength * b.pursueFactor * packBonus;
+          b.vy += (dy / dist) * pursueStrength * b.pursueFactor * packBonus;
+        } else if (nearestPrey) {
           const dist = Math.sqrt(nearestPreyDistSq) || 0.01;
           const tti = dist / Math.max(b.maxSpeed, 0.5);
           const targetX = nearestPrey.x + nearestPrey.vx * tti * b.leadFactor;
@@ -1790,8 +1819,8 @@
             const t = Math.max(0, b.energy) / PREDATOR_TORPOR_THRESHOLD;
             torporFactor = PREDATOR_TORPOR_MIN_MULT + (1 - PREDATOR_TORPOR_MIN_MULT) * t;
           }
-          // Wandering — no prey visible, not satiated → resting metabolism
-          if (!nearestPrey && b.satiated === 0) {
+          // Wandering — no prey AND no carrion visible, not satiated → resting metabolism
+          if (!nearestPrey && !nearestCarrion && b.satiated === 0) {
             torporFactor *= PREDATOR_WANDER_DRAIN_MULT;
           }
         }
@@ -2033,8 +2062,35 @@
       for (const b of watched) {
         if (b.species !== PREDATOR_SPECIES) continue;
         if (b.satiated > 0) continue;
+        // Show carrion target as priority (brown line) if any visible in cone
+        const visualSq = b.visualRange * b.visualRange;
+        let carrionTarget = null;
+        let carrionDistSq = visualSq;
+        const speedSqB = b.vx * b.vx + b.vy * b.vy;
+        const useCone = speedSqB > 0.01;
+        for (const cc of carrion) {
+          const dx = b.x - cc.x, dy = b.y - cc.y;
+          const dSq = dx * dx + dy * dy;
+          if (dSq >= carrionDistSq) continue;
+          if (useCone) {
+            const dotN = -b.vx * dx - b.vy * dy;
+            if (dotN <= 0) continue;
+            if (dotN * dotN < FORAGE_CONE_COS * FORAGE_CONE_COS * speedSqB * dSq) continue;
+          }
+          carrionDistSq = dSq;
+          carrionTarget = cc;
+        }
+        if (carrionTarget) {
+          c.strokeStyle = 'rgba(180, 140, 110, 0.9)';
+          c.lineWidth = 1.8;
+          c.beginPath();
+          c.moveTo(b.x, b.y);
+          c.lineTo(carrionTarget.x, carrionTarget.y);
+          c.stroke();
+          continue; // skip the live-prey line for this predator
+        }
         let target = null;
-        let targetDistSq = b.visualRange * b.visualRange;
+        let targetDistSq = visualSq;
         for (const other of boids) {
           if (other.species === PREDATOR_SPECIES) continue;
           const dx = b.x - other.x, dy = b.y - other.y;

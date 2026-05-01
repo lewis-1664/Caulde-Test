@@ -405,7 +405,34 @@ function runSimulation(seed, frames, overrideParams = {}) {
       b.vx += closeDx * b.separationFactor;
       b.vy += closeDy * b.separationFactor;
 
-      if (nearestPrey) {
+      let nearestCarrion = null;
+      let nearestCarrionDistSq = visualSq;
+      if (isPredator && b.satiated <= 0 && carrion.length > 0) {
+        const speedSqB = b.vx * b.vx + b.vy * b.vy;
+        const useCone = speedSqB > 0.01;
+        for (const c of carrion) {
+          const dx = b.x - c.x, dy = b.y - c.y;
+          const dSq = dx * dx + dy * dy;
+          if (dSq >= nearestCarrionDistSq) continue;
+          if (useCone) {
+            const dotN = -b.vx * dx - b.vy * dy;
+            if (dotN <= 0) continue;
+            if (dotN * dotN < P.FORAGE_CONE_COS * P.FORAGE_CONE_COS * speedSqB * dSq) continue;
+          }
+          nearestCarrionDistSq = dSq;
+          nearestCarrion = c;
+        }
+      }
+
+      if (nearestCarrion) {
+        const dx = nearestCarrion.x - b.x;
+        const dy = nearestCarrion.y - b.y;
+        const dist = Math.sqrt(nearestCarrionDistSq) || 0.01;
+        const pursueStrength = b.visualRange / Math.max(dist, 25);
+        const packBonus = 1 + packMates * P.PACK_BONUS_PER_MATE;
+        b.vx += (dx / dist) * pursueStrength * b.pursueFactor * packBonus;
+        b.vy += (dy / dist) * pursueStrength * b.pursueFactor * packBonus;
+      } else if (nearestPrey) {
         const dist = Math.sqrt(nearestPreyDistSq) || 0.01;
         const tti = dist / Math.max(b.maxSpeed, 0.5);
         const targetX = nearestPrey.x + nearestPrey.vx * tti * b.leadFactor;
@@ -586,7 +613,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
           const t = Math.max(0, b.energy) / P.PREDATOR_TORPOR_THRESHOLD;
           torporFactor = P.PREDATOR_TORPOR_MIN_MULT + (1 - P.PREDATOR_TORPOR_MIN_MULT) * t;
         }
-        if (!nearestPrey && b.satiated === 0) {
+        if (!nearestPrey && !nearestCarrion && b.satiated === 0) {
           torporFactor *= P.PREDATOR_WANDER_DRAIN_MULT;
         }
       }
