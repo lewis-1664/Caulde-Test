@@ -90,10 +90,10 @@ In `step()`'s per-boid loop, in this order:
 9. **Speed clamp** — to `[b.minSpeed, b.maxSpeed]`.
 10. **Position update + hard viewport clamp** — boids cannot leave the canvas.
 11. **Hard obstacle collision** — if SDF < 0 after move, push to surface and zero inward velocity component (slide along wall).
-12. **Energy drain** + **food eating** (Phase 2). Drain is multiplied by a **metabolic cost** `1 + max(0, maxSpeed - baseline)² × 1.5` where `baseline` is 2.8 for prey, 3.0 for predator — so unbounded speed evolution is self-limiting via energy cost.
+12. **Energy drain** + **food eating** (Phase 2). Drain is multiplied by a **metabolic cost** `1 + max(0, maxSpeed - baseline)² × 1.5` where `baseline` is 2.8 for prey, 3.0 for predator — so unbounded speed evolution is self-limiting via energy cost. Drain is also multiplied by an **age factor** ramping from 1× to 2× across the species' aging window (prey: frames 3000–9000, predator: 4000–12000).
 
 After the per-boid loop:
-13. **Reproduction pass** — boids with `energy ≥ REPRODUCE_THRESHOLD` may spawn a mutated child (gated by `REPRODUCE_PROB` and `SPECIES_POP_CAP`); reproducing costs `REPRODUCE_COST` energy.
+13. **Reproduction pass** — boids with `energy ≥ REPRODUCE_THRESHOLD` AND `age ≥ MATURITY_AGE` may spawn a mutated child (gated by per-species reproduce probability and `SPECIES_POP_CAP`); reproducing costs `REPRODUCE_COST` energy. Juveniles cannot reproduce.
 14. **Predator catch pass** — predators within `CATCH_RADIUS` of any prey eat one (closest), gaining `PREDATOR_CATCH_RESTORE` energy and entering a `SATIETY_DURATION` cooldown.
 15. **Starvation pass** — boids with `energy ≤ 0` are removed.
 16. **Food respawn** — one new dot every `FOOD_RESPAWN_INTERVAL` frames if below `FOOD_INITIAL`.
@@ -118,11 +118,18 @@ NUM_OBSTACLES (live):    user-placed via toolbar (or randomized via "Random Map"
 SPECIES_INITIAL:         [15, 15, 15, 2]   prey species + predator initial pop
 SPECIES_POP_CAP:         [85, 85, 85, 12]  reproduction stops at cap
 
-REPRODUCE_PROB:          0.0001            per-boid per-frame chance
+PREY_REPRODUCE_PROB:     0.00020           per-boid per-frame chance (prey)
+PREDATOR_REPRODUCE_PROB: 0.00015           per-boid per-frame chance (predator — slower)
 REPRODUCE_THRESHOLD:     0.65              required energy to reproduce
 REPRODUCE_COST:          0.30              energy spent on reproduction
 INITIAL_ENERGY:          0.70
 CHILD_ENERGY:            0.40
+
+MATURITY_AGE:            900 frames        juveniles can't reproduce
+AGE_DRAIN_RAMP_START:    3000 frames       prey aging starts here
+AGE_DRAIN_RAMP_END:      9000 frames       prey aging maxes (2× drain)
+PREDATOR_AGE_DRAIN_RAMP: 4000 → 12000      predators age slower (apex lifespan)
+MAX_AGE_DRAIN_MULT:      2.0               peak elderly drain multiplier
 
 PREY_ENERGY_DRAIN:       0.00020           per frame, multiplied by metabolic cost
 PREDATOR_ENERGY_DRAIN:   0.00025           higher than prey — predators self-limit
@@ -218,6 +225,14 @@ behavior.
   user-placeable circle/square/triangle: polygons (rocks), blobs (overlapping circles),
   and capsules (rounded rectangles). All share the same SDF-based avoidance system. Add
   more shape types by adding an SDF, a generator, and an `obstacleSDF`/`drawObstacle` case.
+- **Aging is ecologically stabilising.** Counterintuitively, removing aging makes the
+  system *less* stable: predators live forever, peak average ~9 (vs ~5 with aging), and
+  drive prey extinct in 48% of runs. With aging, predator turnover keeps prey extinction
+  near 27% while predators themselves only die out in ~24% of runs. Predators have a
+  longer prime than prey (4000–12000 vs 3000–9000) reflecting apex-species lifespans.
+- **Boid size scales with juvenile age.** A newborn boid renders at 50% scale and grows
+  linearly to full size at `MATURITY_AGE` (frame 900). The selected-boid panel shows a
+  lifecycle label (`juvenile`, `adult`, `elderly`) alongside the behavioral state.
 
 ## Tips for extending
 

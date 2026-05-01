@@ -40,6 +40,8 @@ const DEFAULT_PARAMS = {
   TRAIT_VARIATION: 0.10,
   MUTATION_STRENGTH: 0.08,
   REPRODUCE_PROB: 0.00010,
+  PREY_REPRODUCE_PROB: 0.00020,
+  PREDATOR_REPRODUCE_PROB: 0.00015,
   SPECIES_POP_CAP: [85, 85, 85, 12],
 
   ARC_PROBE_COUNT: 5,
@@ -65,6 +67,14 @@ const DEFAULT_PARAMS = {
   FORAGE_FORCE: 0.30,
   PACK_RANGE: 80,
   PACK_BONUS_PER_MATE: 0.4,
+  MATURITY_AGE: 900,
+  AGE_DRAIN_RAMP_START: 3000,
+  AGE_DRAIN_RAMP_END: 9000,
+  MAX_AGE_DRAIN_MULT: 2.0,
+  // Predators: slower aging, longer prime — apex species live longer, reproduce slower
+  PREDATOR_MATURITY_AGE: 900,
+  PREDATOR_AGE_DRAIN_RAMP_START: 4000,
+  PREDATOR_AGE_DRAIN_RAMP_END: 12000,
   METABOLIC_MODE: 'quadratic-excess',
   METABOLIC_PARAM: 1.5,
 
@@ -143,15 +153,22 @@ function runSimulation(seed, frames, overrideParams = {}) {
   function obstacleSDF(o, px, py) {
     return Math.hypot(px - o.x, py - o.y) - o.size;
   }
-  function obstacleRepelAt(o, px, py) {
+  function obstacleRepelAt(o, px, py, vx, vy) {
     const d = obstacleSDF(o, px, py);
     if (d >= P.OBSTACLE_REPEL_RANGE) return [0, 0];
     const eps = 1.5;
     const gx = obstacleSDF(o, px + eps, py) - d;
     const gy = obstacleSDF(o, px, py + eps) - d;
     const len = Math.hypot(gx, gy) || 1;
-    const strength = Math.max(0, P.OBSTACLE_REPEL_RANGE - d) * P.OBSTACLE_REPEL_FORCE;
-    return [(gx / len) * strength, (gy / len) * strength];
+    const nx = gx / len, ny = gy / len;
+    let directionScale = 1;
+    if (vx !== undefined) {
+      const speed = Math.hypot(vx, vy) || 0.01;
+      const heading = -(vx * nx + vy * ny) / speed;
+      directionScale = Math.max(0.2, Math.max(0, heading));
+    }
+    const strength = Math.max(0, P.OBSTACLE_REPEL_RANGE - d) * P.OBSTACLE_REPEL_FORCE * directionScale;
+    return [nx * strength, ny * strength];
   }
 
   function spawnBoid(x, y, spread, species) {
@@ -173,6 +190,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
       alarmDy: 0,
       descendants: 0,
       energy: P.INITIAL_ENERGY,
+      age: 0,
       founderId: -1,
       bornFrame: currentFrame,
       diedFrame: -1,
@@ -214,6 +232,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
       alarmDy: 0,
       descendants: 0,
       energy: P.CHILD_ENERGY,
+      age: 0,
       founderId: parent.founderId,
       bornFrame: currentFrame,
       diedFrame: -1,
@@ -384,7 +403,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
       if (obstacles.length > 0) {
         let avoidFx = 0, avoidFy = 0;
         for (const o of obstacles) {
-          const [fx, fy] = obstacleRepelAt(o, b.x, b.y);
+          const [fx, fy] = obstacleRepelAt(o, b.x, b.y, b.vx, b.vy);
           avoidFx += fx;
           avoidFy += fy;
         }
@@ -396,7 +415,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
             const px = b.x + Math.cos(angle) * b.lookAhead;
             const py = b.y + Math.sin(angle) * b.lookAhead;
             for (const o of obstacles) {
-              const [fx, fy] = obstacleRepelAt(o, px, py);
+              const [fx, fy] = obstacleRepelAt(o, px, py, b.vx, b.vy);
               avoidFx += fx * P.ARC_PROBE_WEIGHT;
               avoidFy += fy * P.ARC_PROBE_WEIGHT;
             }
@@ -451,6 +470,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
         }
       }
       if (b.satiated > 0) b.satiated--;
+      b.age++;
       const baseSpeed = isPredator ? 3.0 : 2.8;
       let speedFactor = 1.0;
       if (P.METABOLIC_MODE === 'power') {
@@ -462,7 +482,11 @@ function runSimulation(seed, frames, overrideParams = {}) {
         const excess = Math.max(0, b.maxSpeed - baseSpeed);
         speedFactor = 1 + excess * excess * P.METABOLIC_PARAM;
       }
-      b.energy -= (isPredator ? P.PREDATOR_ENERGY_DRAIN : P.PREY_ENERGY_DRAIN) * speedFactor;
+      const ageStart = isPredator ? (P.PREDATOR_AGE_DRAIN_RAMP_START ?? P.AGE_DRAIN_RAMP_START) : P.AGE_DRAIN_RAMP_START;
+      const ageEnd = isPredator ? (P.PREDATOR_AGE_DRAIN_RAMP_END ?? P.AGE_DRAIN_RAMP_END) : P.AGE_DRAIN_RAMP_END;
+      const ageT = Math.max(0, Math.min(1, (b.age - ageStart) / (ageEnd - ageStart)));
+      const ageFactor = 1 + ageT * (P.MAX_AGE_DRAIN_MULT - 1);
+      b.energy -= (isPredator ? P.PREDATOR_ENERGY_DRAIN : P.PREY_ENERGY_DRAIN) * speedFactor * ageFactor;
       if (!isPredator && food.length > 0) {
         const eatSq = P.FOOD_CATCH_RADIUS * P.FOOD_CATCH_RADIUS;
         for (let fi = food.length - 1; fi >= 0; fi--) {
@@ -481,8 +505,14 @@ function runSimulation(seed, frames, overrideParams = {}) {
     for (const b of boids) speciesCounts[b.species]++;
     const offspring = [];
     for (const b of boids) {
+      const isPredatorB = b.species === PREDATOR_SPECIES;
+      const matAge = isPredatorB ? (P.PREDATOR_MATURITY_AGE ?? P.MATURITY_AGE) : P.MATURITY_AGE;
+      if (b.age < matAge) continue;
       if (b.energy < P.REPRODUCE_THRESHOLD) continue;
-      if (rand() >= P.REPRODUCE_PROB) continue;
+      const reprodProb = isPredatorB
+        ? (P.PREDATOR_REPRODUCE_PROB ?? P.REPRODUCE_PROB)
+        : (P.PREY_REPRODUCE_PROB ?? P.REPRODUCE_PROB);
+      if (rand() >= reprodProb) continue;
       if (speciesCounts[b.species] >= P.SPECIES_POP_CAP[b.species]) continue;
       speciesCounts[b.species]++;
       const child = reproduceFrom(b);
@@ -651,8 +681,11 @@ function runScenario(label, runs, frames, overrides = {}) {
     const finals = results.map(r => r.finalCounts[s]);
     const { mean, stdev } = meanStdev(finals);
     const minPops = results.map(r => r.popMin[s]);
+    const maxPops = results.map(r => r.popMax[s]);
+    const meanMax = maxPops.reduce((a, b) => a + b, 0) / maxPops.length;
+    const peakOverall = Math.max(...maxPops);
     const extinctions = results.filter(r => r.extinctSpecies.includes(s)).length;
-    console.log(`  ${pad(SPECIES[s].name, 9)} ${rpad(startCount, 3)} → ${rpad(fmt(mean, 1), 6)} ± ${fmt(stdev, 1)}  (extinct in ${extinctions}/${runs}, min seen: ${Math.min(...minPops)})`);
+    console.log(`  ${pad(SPECIES[s].name, 9)} ${rpad(startCount, 3)} → ${rpad(fmt(mean, 1), 6)} ± ${fmt(stdev, 1)}  (peak avg: ${fmt(meanMax, 1)}, peak max: ${peakOverall}, extinct in ${extinctions}/${runs}, min: ${Math.min(...minPops)})`);
   }
 
   // Trait drift (initial vs final mean), prey species only
@@ -735,11 +768,13 @@ function runScenario(label, runs, frames, overrides = {}) {
 
 console.log('Natural-selection headless analysis — metabolic cost sweep\n');
 
-// 6-min runs to compare against earlier baseline
+// Tuning predator reproduction with aging
 const FRAMES = 21600;
 const RUNS = 25;
 
-runScenario('Phase 2 + behavioral traits + metabolic 1.5 (current default)', RUNS, FRAMES);
-runScenario('Without metabolic cost', RUNS, FRAMES, { METABOLIC_MODE: 'none' });
-runScenario('With more prey (25 each)', RUNS, FRAMES, { SPECIES_INITIAL: [25, 25, 25, 3] });
-runScenario('Less trait variation (5%)', RUNS, FRAMES, { TRAIT_VARIATION: 0.05 });
+runScenario('Aging defaults — pred slow-age 4000-12000', RUNS, FRAMES);
+runScenario('Same, but no aging at all (control)', RUNS, FRAMES, {
+  AGE_DRAIN_RAMP_START: 100000, AGE_DRAIN_RAMP_END: 200000,
+  PREDATOR_AGE_DRAIN_RAMP_START: 100000, PREDATOR_AGE_DRAIN_RAMP_END: 200000,
+  MATURITY_AGE: 0, PREDATOR_MATURITY_AGE: 0,
+});

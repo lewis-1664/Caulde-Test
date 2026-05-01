@@ -392,6 +392,7 @@
       <div class="sel-stat"><span class="label">Alarm</span><span class="value" id="sel-contagion">-</span></div>
       <div class="sel-stat"><span class="label">Kids</span><span class="value" id="sel-kids">-</span></div>
       <div class="sel-stat"><span class="label">Energy</span><span class="value" id="sel-energy">-</span></div>
+      <div class="sel-stat"><span class="label">Age</span><span class="value" id="sel-age">-</span></div>
     </div>
   </div>
   <div class="species-stats" id="species-stats">
@@ -656,6 +657,8 @@
     const TRAIT_VARIATION = 0.10;
     const MUTATION_STRENGTH = 0.08;
     const REPRODUCE_PROB = 0.00010;
+    const PREY_REPRODUCE_PROB = 0.00020;
+    const PREDATOR_REPRODUCE_PROB = 0.00015;
     const SPECIES_POP_CAP = [85, 85, 85, 12];
 
     // Phase 2 — food + energy + starvation
@@ -674,6 +677,13 @@
     const FORAGE_FORCE = 0.30;
     const PACK_RANGE = 80;
     const PACK_BONUS_PER_MATE = 0.4;
+    const MATURITY_AGE = 900;
+    const AGE_DRAIN_RAMP_START = 3000;
+    const AGE_DRAIN_RAMP_END = 9000;
+    const MAX_AGE_DRAIN_MULT = 2.0;
+    // Predators: slower aging, longer prime — apex species live longer, reproduce slower
+    const PREDATOR_AGE_DRAIN_RAMP_START = 4000;
+    const PREDATOR_AGE_DRAIN_RAMP_END = 12000;
     const TRAIT_BOUNDS = {
       maxSpeed:         [0.5, 6.0],
       minSpeed:         [0.3, 4.0],
@@ -726,6 +736,7 @@
         alarmDy: 0,
         descendants: 0,
         energy: INITIAL_ENERGY,
+        age: 0,
         maxSpeed:         clampTrait(v(sp.maxSpeed),         TRAIT_BOUNDS.maxSpeed),
         minSpeed:         clampTrait(v(sp.minSpeed),         TRAIT_BOUNDS.minSpeed),
         alignFactor:      clampTrait(v(sp.alignFactor),      TRAIT_BOUNDS.alignFactor),
@@ -750,11 +761,18 @@
 
     const food = [];
     let foodRespawnCounter = 0;
+    const FOOD_TERRAIN_BUFFER = 50;
     function spawnFood() {
-      food.push({
-        x: 30 + Math.random() * (viewW() - 60),
-        y: 30 + Math.random() * (viewH() - 60),
-      });
+      const margin = 30;
+      for (let attempt = 0; attempt < 30; attempt++) {
+        const x = margin + Math.random() * (viewW() - margin * 2);
+        const y = margin + Math.random() * (viewH() - margin * 2);
+        let ok = true;
+        for (const o of obstacles) {
+          if (obstacleSDF(o, x, y) < FOOD_TERRAIN_BUFFER) { ok = false; break; }
+        }
+        if (ok) { food.push({ x, y }); return; }
+      }
     }
     for (let i = 0; i < FOOD_INITIAL; i++) spawnFood();
 
@@ -779,6 +797,7 @@
         alarmDy: 0,
         descendants: 0,
         energy: CHILD_ENERGY,
+        age: 0,
         maxSpeed:         m(parent.maxSpeed,         TRAIT_BOUNDS.maxSpeed),
         minSpeed:         m(parent.minSpeed,         TRAIT_BOUNDS.minSpeed),
         alignFactor:      m(parent.alignFactor,      TRAIT_BOUNDS.alignFactor),
@@ -817,70 +836,48 @@
       return o;
     }
 
-    function makeRock(x, y) {
-      const n = 6 + Math.floor(Math.random() * 4);
-      const baseR = 22 + Math.random() * 22;
+    function makeTerrain(x, y, sizeHint) {
+      const n = 9 + Math.floor(Math.random() * 5);
+      const baseR = sizeHint || (40 + Math.random() * 55);
       const verts = [];
       for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2 + Math.random() * 0.3;
-        const r = baseR * (0.65 + Math.random() * 0.7);
+        const a = (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
+        const r = baseR * (0.55 + Math.random() * 0.85);
         verts.push({ x: x + Math.cos(a) * r, y: y + Math.sin(a) * r });
       }
       return { type: 'polygon', x, y, size: baseR, verts, terrain: true };
     }
-    function makeBlob(x, y) {
-      const n = 3 + Math.floor(Math.random() * 3);
-      const baseR = 16 + Math.random() * 12;
-      const circles = [];
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2 + Math.random();
-        const offset = baseR * 0.6 * Math.random();
-        circles.push({
-          x: x + Math.cos(a) * offset,
-          y: y + Math.sin(a) * offset,
-          r: baseR * (0.7 + Math.random() * 0.5),
-        });
-      }
-      return { type: 'blob', x, y, size: baseR * 1.5, circles, terrain: true };
-    }
-    function makeCapsule(x, y) {
-      const angle = Math.random() * Math.PI * 2;
-      const length = 40 + Math.random() * 60;
-      const radius = 10 + Math.random() * 8;
-      return { type: 'capsule', x, y, size: length / 2 + radius, angle, length, radius, terrain: true };
-    }
     function randomizeMap() {
       obstacles.length = 0;
-      const margin = 60;
+      const margin = 80;
       const w = viewW(), h = viewH();
-      const numClusters = 3 + Math.floor(Math.random() * 3);
-      function tryAdd(maker, fx, fy) {
-        const o = maker(fx, fy);
+      const target = 5 + Math.floor(Math.random() * 5);
+      function tryAdd(fx, fy, sizeHint) {
+        const o = makeTerrain(fx, fy, sizeHint);
         for (const ex of obstacles) {
           const dx = o.x - ex.x, dy = o.y - ex.y;
-          if (dx * dx + dy * dy < (o.size + ex.size) * (o.size + ex.size) * 0.5) return;
+          const minSep = (o.size + ex.size) * 0.7;
+          if (dx * dx + dy * dy < minSep * minSep) return false;
         }
         obstacles.push(o);
+        return true;
       }
-      for (let c = 0; c < numClusters; c++) {
-        const cx = margin + Math.random() * (w - margin * 2);
-        const cy = margin + Math.random() * (h - margin * 2);
-        const numFeat = 3 + Math.floor(Math.random() * 4);
-        for (let f = 0; f < numFeat; f++) {
-          const a = Math.random() * Math.PI * 2;
-          const r = Math.random() * 130;
-          const fx = Math.max(margin, Math.min(w - margin, cx + Math.cos(a) * r));
-          const fy = Math.max(margin, Math.min(h - margin, cy + Math.sin(a) * r));
-          const roll = Math.random();
-          tryAdd(roll < 0.5 ? makeRock : roll < 0.8 ? makeBlob : makeCapsule, fx, fy);
-        }
-      }
-      const numIsolated = 4 + Math.floor(Math.random() * 5);
-      for (let i = 0; i < numIsolated; i++) {
+      let placed = 0, attempts = 0;
+      while (placed < target && attempts < 200) {
+        attempts++;
         const fx = margin + Math.random() * (w - margin * 2);
         const fy = margin + Math.random() * (h - margin * 2);
-        const roll = Math.random();
-        tryAdd(roll < 0.5 ? makeRock : roll < 0.8 ? makeBlob : makeCapsule, fx, fy);
+        const sizeHint = 35 + Math.random() * 60;
+        if (tryAdd(fx, fy, sizeHint)) placed++;
+      }
+      // Remove any food now buried inside the new terrain
+      for (let i = food.length - 1; i >= 0; i--) {
+        for (const o of obstacles) {
+          if (obstacleSDF(o, food[i].x, food[i].y) < FOOD_TERRAIN_BUFFER) {
+            food.splice(i, 1);
+            break;
+          }
+        }
       }
     }
 
@@ -954,15 +951,22 @@
       if (o.type === 'capsule')  return sdfCapsule(px, py, o.x, o.y, o.angle, o.length, o.radius);
       return Infinity;
     }
-    function obstacleRepelAt(o, px, py) {
+    function obstacleRepelAt(o, px, py, vx, vy) {
       const d = obstacleSDF(o, px, py);
       if (d >= OBSTACLE_REPEL_RANGE) return [0, 0];
       const eps = 1.5;
       const gx = obstacleSDF(o, px + eps, py) - d;
       const gy = obstacleSDF(o, px, py + eps) - d;
       const len = Math.hypot(gx, gy) || 1;
-      const strength = Math.max(0, OBSTACLE_REPEL_RANGE - d) * OBSTACLE_REPEL_FORCE;
-      return [(gx / len) * strength, (gy / len) * strength];
+      const nx = gx / len, ny = gy / len;
+      let directionScale = 1;
+      if (vx !== undefined) {
+        const speed = Math.hypot(vx, vy) || 0.01;
+        const heading = -(vx * nx + vy * ny) / speed;
+        directionScale = Math.max(0.2, Math.max(0, heading));
+      }
+      const strength = Math.max(0, OBSTACLE_REPEL_RANGE - d) * OBSTACLE_REPEL_FORCE * directionScale;
+      return [nx * strength, ny * strength];
     }
 
     function eventToCanvas(e) {
@@ -1074,6 +1078,7 @@
       contagion: document.getElementById('sel-contagion'),
       kids:      document.getElementById('sel-kids'),
       energy:    document.getElementById('sel-energy'),
+      age:       document.getElementById('sel-age'),
     };
     function clearSelection() {
       selectedBoid = null;
@@ -1103,15 +1108,19 @@
       const p = SPECIES_PARAMS[b.species];
       selDot.style.background = `hsl(${s.centerHue}, ${SPECIES_SAT[b.species]}%, ${SPECIES_LIGHT[b.species]}%)`;
       selSpecies.textContent = s.name;
-      let state = '';
+      let baseState = '';
       if (b.species === PREDATOR_SPECIES) {
-        state = b.satiated > 0 ? `fed (${Math.ceil(b.satiated/60)}s)` : 'hunting';
+        baseState = b.satiated > 0 ? `fed (${Math.ceil(b.satiated/60)}s)` : 'hunting';
       } else if (b.alarm > 0.2) {
-        state = `alarmed ${(b.alarm * 100).toFixed(0)}%`;
+        baseState = `alarmed ${(b.alarm * 100).toFixed(0)}%`;
       } else {
-        state = 'calm';
+        baseState = 'calm';
       }
-      selState.textContent = state;
+      let lifeStage = '';
+      const elderlyAge = b.species === PREDATOR_SPECIES ? PREDATOR_AGE_DRAIN_RAMP_START : AGE_DRAIN_RAMP_START;
+      if (b.age < MATURITY_AGE) lifeStage = 'juvenile';
+      else if (b.age > elderlyAge) lifeStage = 'elderly';
+      selState.textContent = lifeStage ? `${lifeStage}, ${baseState}` : baseState;
       selStats.speed.textContent = b.maxSpeed.toFixed(2);
       selStats.align.textContent = (b.alignFactor * 100).toFixed(1);
       selStats.coh.textContent   = (b.cohesionFactor * 10000).toFixed(1);
@@ -1126,6 +1135,7 @@
       selStats.contagion.textContent = b.contagionFactor.toFixed(2);
       selStats.kids.textContent  = b.descendants;
       selStats.energy.textContent = (b.energy * 100).toFixed(0) + '%';
+      selStats.age.textContent = (b.age / 60).toFixed(0) + 's';
     }
 
     function updateSpeciesStats() {
@@ -1407,7 +1417,7 @@
         if (obstacles.length > 0) {
           let avoidFx = 0, avoidFy = 0;
           for (const o of obstacles) {
-            const [fx, fy] = obstacleRepelAt(o, b.x, b.y);
+            const [fx, fy] = obstacleRepelAt(o, b.x, b.y, b.vx, b.vy);
             avoidFx += fx;
             avoidFy += fy;
           }
@@ -1419,7 +1429,7 @@
               const px = b.x + Math.cos(angle) * b.lookAhead;
               const py = b.y + Math.sin(angle) * b.lookAhead;
               for (const o of obstacles) {
-                const [fx, fy] = obstacleRepelAt(o, px, py);
+                const [fx, fy] = obstacleRepelAt(o, px, py, b.vx, b.vy);
                 avoidFx += fx * ARC_PROBE_WEIGHT;
                 avoidFy += fy * ARC_PROBE_WEIGHT;
               }
@@ -1486,10 +1496,15 @@
           }
         }
         if (b.satiated > 0) b.satiated--;
+        b.age++;
         const baseSpeed = isPredator ? 3.0 : 2.8;
         const excess = Math.max(0, b.maxSpeed - baseSpeed);
         const speedFactor = 1 + excess * excess * 1.5;
-        b.energy -= (isPredator ? PREDATOR_ENERGY_DRAIN : PREY_ENERGY_DRAIN) * speedFactor;
+        const ageStart = isPredator ? PREDATOR_AGE_DRAIN_RAMP_START : AGE_DRAIN_RAMP_START;
+        const ageEnd = isPredator ? PREDATOR_AGE_DRAIN_RAMP_END : AGE_DRAIN_RAMP_END;
+        const ageT = Math.max(0, Math.min(1, (b.age - ageStart) / (ageEnd - ageStart)));
+        const ageFactor = 1 + ageT * (MAX_AGE_DRAIN_MULT - 1);
+        b.energy -= (isPredator ? PREDATOR_ENERGY_DRAIN : PREY_ENERGY_DRAIN) * speedFactor * ageFactor;
         if (!isPredator && food.length > 0) {
           const eatSq = FOOD_CATCH_RADIUS * FOOD_CATCH_RADIUS;
           for (let fi = food.length - 1; fi >= 0; fi--) {
@@ -1507,8 +1522,10 @@
       for (const b of boids) speciesCounts[b.species]++;
       const offspring = [];
       for (const b of boids) {
+        if (b.age < MATURITY_AGE) continue;
         if (b.energy < REPRODUCE_THRESHOLD) continue;
-        if (Math.random() >= REPRODUCE_PROB) continue;
+        const reprodProb = b.species === PREDATOR_SPECIES ? PREDATOR_REPRODUCE_PROB : PREY_REPRODUCE_PROB;
+        if (Math.random() >= reprodProb) continue;
         if (speciesCounts[b.species] >= SPECIES_POP_CAP[b.species]) continue;
         speciesCounts[b.species]++;
         offspring.push(reproduceFrom(b));
@@ -1579,8 +1596,16 @@
         c.lineTo(o.verts[2].x, o.verts[2].y);
         c.closePath();
       } else if (o.type === 'polygon') {
-        c.moveTo(o.verts[0].x, o.verts[0].y);
-        for (let i = 1; i < o.verts.length; i++) c.lineTo(o.verts[i].x, o.verts[i].y);
+        const v = o.verts, n = v.length;
+        const sx = (v[n - 1].x + v[0].x) / 2;
+        const sy = (v[n - 1].y + v[0].y) / 2;
+        c.moveTo(sx, sy);
+        for (let i = 0; i < n; i++) {
+          const next = (i + 1) % n;
+          const ex = (v[i].x + v[next].x) / 2;
+          const ey = (v[i].y + v[next].y) / 2;
+          c.quadraticCurveTo(v[i].x, v[i].y, ex, ey);
+        }
         c.closePath();
       } else if (o.type === 'blob') {
         for (const cir of o.circles) {
@@ -1681,13 +1706,11 @@
       c.stroke();
       c.setLineDash([]);
 
-      c.strokeStyle = 'rgba(244, 63, 94, 0.95)';
-      c.lineWidth = 1.8;
       for (const b of watched) {
         if (b.species !== PREDATOR_SPECIES) continue;
         if (b.satiated > 0) continue;
         let target = null;
-        let targetDistSq = visualSq;
+        let targetDistSq = b.visualRange * b.visualRange;
         for (const other of boids) {
           if (other.species === PREDATOR_SPECIES) continue;
           const dx = b.x - other.x, dy = b.y - other.y;
@@ -1698,10 +1721,28 @@
           }
         }
         if (target) {
+          const dist = Math.sqrt(targetDistSq) || 0.01;
+          const tti = dist / Math.max(b.maxSpeed, 0.5);
+          const lx = target.x + target.vx * tti * b.leadFactor;
+          const ly = target.y + target.vy * tti * b.leadFactor;
+          c.strokeStyle = 'rgba(244, 63, 94, 0.95)';
+          c.lineWidth = 1.8;
           c.beginPath();
           c.moveTo(b.x, b.y);
           c.lineTo(target.x, target.y);
           c.stroke();
+          c.strokeStyle = 'rgba(255, 235, 60, 0.65)';
+          c.lineWidth = 1;
+          c.setLineDash([3, 3]);
+          c.beginPath();
+          c.moveTo(target.x, target.y);
+          c.lineTo(lx, ly);
+          c.stroke();
+          c.setLineDash([]);
+          c.fillStyle = 'rgba(255, 235, 60, 0.95)';
+          c.beginPath();
+          c.arc(lx, ly, 4, 0, Math.PI * 2);
+          c.fill();
         }
       }
 
@@ -1814,6 +1855,8 @@
         ctx.save();
         ctx.translate(b.x, b.y);
         ctx.rotate(angle);
+        const ageScale = 0.5 + 0.5 * Math.min(1, b.age / MATURITY_AGE);
+        ctx.scale(ageScale, ageScale);
         const fed = b.species === PREDATOR_SPECIES && b.satiated > 0;
         const fedMult = fed ? 0.55 : 1;
         const energyAlpha = 0.3 + 0.7 * Math.max(0, Math.min(1, b.energy));
