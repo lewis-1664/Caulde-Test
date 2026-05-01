@@ -56,6 +56,9 @@ const DEFAULT_PARAMS = {
   FOOD_INITIAL: 150,
   FOOD_RESPAWN_INTERVAL: 30,
   FOOD_CATCH_RADIUS: 12,
+  NUM_FOOD_PATCHES: 10,
+  FOOD_PATCH_RADIUS: 60,
+  FOOD_PATCH_MIN_SEPARATION: 140,
   FORAGE_CLOSE_BOOST: 1.0,
   FORAGE_TANGENT_DAMP: 0,
   FOOD_RESTORE: 0.30,
@@ -130,12 +133,44 @@ function runSimulation(seed, frames, overrideParams = {}) {
   const obstacles = [];
   const food = [];
   let foodRespawnCounter = 0;
+  const foodPatches = [];
+  function regenerateFoodPatches() {
+    foodPatches.length = 0;
+    const margin = 60;
+    let attempts = 0;
+    while (foodPatches.length < P.NUM_FOOD_PATCHES && attempts < 300) {
+      attempts++;
+      const x = margin + rand() * (W - margin * 2);
+      const y = margin + rand() * (H - margin * 2);
+      let ok = true;
+      for (const p of foodPatches) {
+        const dx = x - p.x, dy = y - p.y;
+        if (dx * dx + dy * dy < P.FOOD_PATCH_MIN_SEPARATION * P.FOOD_PATCH_MIN_SEPARATION) { ok = false; break; }
+      }
+      if (!ok) continue;
+      foodPatches.push({ x, y, radius: P.FOOD_PATCH_RADIUS });
+    }
+  }
   function spawnFood() {
+    const margin = 30;
+    if (foodPatches.length > 0) {
+      for (let attempt = 0; attempt < 30; attempt++) {
+        const p = foodPatches[Math.floor(rand() * foodPatches.length)];
+        const angle = rand() * Math.PI * 2;
+        const r = Math.sqrt(rand()) * p.radius;
+        const x = p.x + Math.cos(angle) * r;
+        const y = p.y + Math.sin(angle) * r;
+        if (x < margin || y < margin || x > W - margin || y > H - margin) continue;
+        food.push({ x, y });
+        return;
+      }
+    }
     food.push({
-      x: 30 + rand() * (W - 60),
-      y: 30 + rand() * (H - 60),
+      x: margin + rand() * (W - margin * 2),
+      y: margin + rand() * (H - margin * 2),
     });
   }
+  regenerateFoodPatches();
   for (let i = 0; i < P.FOOD_INITIAL; i++) spawnFood();
 
   // Generate circle obstacles in a jittered grid covering the play area
@@ -823,5 +858,5 @@ console.log('Natural-selection headless analysis — metabolic cost sweep\n');
 const FRAMES = 21600;
 const RUNS = 25;
 
-runScenario('Final defaults — endangered boost on', RUNS, FRAMES);
-runScenario('Final defaults — terrain 10', RUNS, FRAMES, { NUM_OBSTACLES: 10 });
+runScenario('Final: 10 patches × 60', RUNS, FRAMES);
+runScenario('Final + terrain 10', RUNS, FRAMES, { NUM_OBSTACLES: 10 });
