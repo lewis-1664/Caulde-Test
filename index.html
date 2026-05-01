@@ -178,6 +178,12 @@
       background: rgba(255, 255, 255, 0.04);
       border-radius: 4px;
     }
+    .stats-left {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      align-items: flex-start;
+    }
     .stats-graph-wrap {
       display: flex;
       flex-direction: row;
@@ -194,6 +200,109 @@
       text-align: right;
       padding: 1px 0;
       min-width: 1.4rem;
+    }
+
+    .selected-boid {
+      position: fixed;
+      top: 1rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 17, 22, 0.88);
+      backdrop-filter: blur(6px);
+      padding: 0.55rem 0.85rem;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      color: #d4d4d8;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      display: none;
+      flex-direction: column;
+      gap: 0.4rem;
+      min-width: 24rem;
+    }
+    .selected-boid.visible { display: flex; }
+    .sel-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: #fff;
+    }
+    .sel-species { font-weight: 600; }
+    .sel-state {
+      color: #a1a1aa;
+      font-size: 0.72rem;
+    }
+    .sel-close {
+      margin-left: auto;
+      background: none;
+      border: none;
+      color: #a1a1aa;
+      font-size: 1.1rem;
+      cursor: pointer;
+      padding: 0 0.3rem;
+      line-height: 1;
+    }
+    .sel-close:hover { color: #fff; }
+    .sel-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .sel-stats {
+      display: grid;
+      grid-template-columns: repeat(4, auto);
+      gap: 0.2rem 0.9rem;
+    }
+    .sel-stat {
+      display: flex;
+      gap: 0.35rem;
+    }
+    .sel-stat .label { color: #a1a1aa; }
+    .sel-stat .value {
+      color: #fff;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .species-stats {
+      position: fixed;
+      bottom: 1.25rem;
+      left: 1rem;
+      background: rgba(15, 17, 22, 0.85);
+      backdrop-filter: blur(6px);
+      padding: 0.55rem 0.7rem;
+      border-radius: 8px;
+      font-size: 0.72rem;
+      color: #d4d4d8;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .species-stats table {
+      border-collapse: collapse;
+    }
+    .species-stats th,
+    .species-stats td {
+      padding: 0.12rem 0.45rem;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .species-stats thead th {
+      color: #a1a1aa;
+      font-weight: 400;
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .species-stats tbody td:first-child {
+      text-align: left;
+      color: #fff;
+    }
+    .species-stats .ss-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      margin-right: 0.35rem;
+      vertical-align: 0.05em;
     }
 
     .toolbar {
@@ -261,31 +370,87 @@
     <h1>Flocking simulation</h1>
     <p>Three species flock with their own kind and avoid the others. Place obstacles, brush boids in or out (target species set top-right), repel from your mouse, or toggle inspect.</p>
   </div>
-  <div class="settings">
-    <label>
-      View range
-      <input type="range" id="visual-range" min="30" max="300" value="150" step="1">
-      <span class="value" id="visual-range-value">150</span>
-    </label>
-    <label>
-      Avoid range
-      <input type="range" id="avoid-range" min="20" max="300" value="38" step="1">
-      <span class="value" id="avoid-range-value">38</span>
-    </label>
-    <label>
-      Look-ahead
-      <input type="range" id="look-ahead" min="0" max="200" value="45" step="1">
-      <span class="value" id="look-ahead-value">45</span>
-    </label>
-    <div class="species-row">
-      <span class="label">Species</span>
-      <div class="species-picker" id="species-picker">
-        <button data-species="0" title="Sky" style="background: hsl(207, 80%, 65%);"></button>
-        <button data-species="1" title="Sun" style="background: hsl(35, 85%, 60%);"></button>
-        <button data-species="2" title="Lime" style="background: hsl(115, 65%, 58%);"></button>
-        <button data-species="3" title="Crimson (predator)" style="background: hsl(354, 75%, 50%);"></button>
-      </div>
+  <div class="selected-boid" id="selected-boid">
+    <div class="sel-header">
+      <span class="sel-dot" id="sel-dot"></span>
+      <span class="sel-species" id="sel-species">—</span>
+      <span class="sel-state" id="sel-state"></span>
+      <button class="sel-close" id="sel-close" title="Deselect">×</button>
     </div>
+    <div class="sel-stats">
+      <div class="sel-stat"><span class="label">Speed</span><span class="value" id="sel-speed">-</span></div>
+      <div class="sel-stat"><span class="label">Align</span><span class="value" id="sel-align">-</span></div>
+      <div class="sel-stat"><span class="label">Coh</span><span class="value" id="sel-coh">-</span></div>
+      <div class="sel-stat"><span class="label">Sep</span><span class="value" id="sel-sep">-</span></div>
+      <div class="sel-stat"><span class="label">Turn</span><span class="value" id="sel-turn">-</span></div>
+      <div class="sel-stat"><span class="label">View</span><span class="value" id="sel-view">-</span></div>
+      <div class="sel-stat"><span class="label">Avoid</span><span class="value" id="sel-avoid">-</span></div>
+      <div class="sel-stat"><span class="label">Look</span><span class="value" id="sel-look">-</span></div>
+      <div class="sel-stat"><span class="label">Kids</span><span class="value" id="sel-kids">-</span></div>
+    </div>
+  </div>
+  <div class="species-stats" id="species-stats">
+    <table>
+      <thead>
+        <tr>
+          <th></th>
+          <th>Speed</th>
+          <th>Align</th>
+          <th>Coh</th>
+          <th>Sep</th>
+          <th>Turn</th>
+          <th>View</th>
+          <th>Avoid</th>
+          <th>Look</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="ss-dot" style="background: hsl(207, 80%, 65%);"></span>Sky</td>
+          <td id="ss-0-speed">-</td>
+          <td id="ss-0-align">-</td>
+          <td id="ss-0-coh">-</td>
+          <td id="ss-0-sep">-</td>
+          <td id="ss-0-turn">-</td>
+          <td id="ss-0-view">-</td>
+          <td id="ss-0-avoid">-</td>
+          <td id="ss-0-look">-</td>
+        </tr>
+        <tr>
+          <td><span class="ss-dot" style="background: hsl(35, 85%, 60%);"></span>Sun</td>
+          <td id="ss-1-speed">-</td>
+          <td id="ss-1-align">-</td>
+          <td id="ss-1-coh">-</td>
+          <td id="ss-1-sep">-</td>
+          <td id="ss-1-turn">-</td>
+          <td id="ss-1-view">-</td>
+          <td id="ss-1-avoid">-</td>
+          <td id="ss-1-look">-</td>
+        </tr>
+        <tr>
+          <td><span class="ss-dot" style="background: hsl(115, 65%, 58%);"></span>Lime</td>
+          <td id="ss-2-speed">-</td>
+          <td id="ss-2-align">-</td>
+          <td id="ss-2-coh">-</td>
+          <td id="ss-2-sep">-</td>
+          <td id="ss-2-turn">-</td>
+          <td id="ss-2-view">-</td>
+          <td id="ss-2-avoid">-</td>
+          <td id="ss-2-look">-</td>
+        </tr>
+        <tr>
+          <td><span class="ss-dot" style="background: hsl(354, 75%, 50%);"></span>Crimson</td>
+          <td id="ss-3-speed">-</td>
+          <td id="ss-3-align">-</td>
+          <td id="ss-3-coh">-</td>
+          <td id="ss-3-sep">-</td>
+          <td id="ss-3-turn">-</td>
+          <td id="ss-3-view">-</td>
+          <td id="ss-3-avoid">-</td>
+          <td id="ss-3-look">-</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
   <div class="toolbar" id="toolbar">
     <button data-tool="pause" title="Pause / play (space)">
@@ -336,12 +501,20 @@
     <button data-tool="clear" title="Clear all obstacles">Clear</button>
   </div>
   <div class="stats" id="stats">
-    <div class="stats-graph-wrap">
-      <div class="stats-axis">
-        <span id="stats-graph-max">60</span>
-        <span>0</span>
+    <div class="stats-left">
+      <div class="species-picker" id="species-picker">
+        <button data-species="0" title="Sky" style="background: hsl(207, 80%, 65%);"></button>
+        <button data-species="1" title="Sun" style="background: hsl(35, 85%, 60%);"></button>
+        <button data-species="2" title="Lime" style="background: hsl(115, 65%, 58%);"></button>
+        <button data-species="3" title="Crimson (predator)" style="background: hsl(354, 75%, 50%);"></button>
       </div>
-      <canvas id="stats-graph" width="160" height="130"></canvas>
+      <div class="stats-graph-wrap">
+        <div class="stats-axis">
+          <span id="stats-graph-max">60</span>
+          <span>0</span>
+        </div>
+        <canvas id="stats-graph" width="160" height="130"></canvas>
+      </div>
     </div>
     <div class="stats-numbers">
       <div class="stats-row">
@@ -412,12 +585,12 @@
     let DIFF_SPECIES_RANGE = 38;
     const SPECIES_PARAMS = [
       { maxSpeed: 2.8, minSpeed: 1.4, alignFactor: 0.030, cohesionFactor: 0.0005,  separationFactor: 0.50, turnFactor: 0.15 },
-      { maxSpeed: 4.0, minSpeed: 2.0, alignFactor: 0.010, cohesionFactor: 0.00012, separationFactor: 0.80, turnFactor: 0.22 },
-      { maxSpeed: 1.5, minSpeed: 0.8, alignFactor: 0.080, cohesionFactor: 0.0016,  separationFactor: 0.30, turnFactor: 0.10 },
-      { maxSpeed: 2.5, minSpeed: 1.2, alignFactor: 0.020, cohesionFactor: 0.00010, separationFactor: 0.50, turnFactor: 0.18 },
+      { maxSpeed: 2.8, minSpeed: 1.4, alignFactor: 0.030, cohesionFactor: 0.0005,  separationFactor: 0.50, turnFactor: 0.15 },
+      { maxSpeed: 2.8, minSpeed: 1.4, alignFactor: 0.030, cohesionFactor: 0.0005,  separationFactor: 0.50, turnFactor: 0.15 },
+      { maxSpeed: 3.6, minSpeed: 1.8, alignFactor: 0.020, cohesionFactor: 0.00010, separationFactor: 0.50, turnFactor: 0.20 },
     ];
     const DIFF_SPECIES_FACTOR = 0.5;
-    const PURSUE_FORCE = 0.05;
+    const PURSUE_FORCE = 0.07;
     const FLEE_FORCE = 0.10;
     const CATCH_RADIUS = 18;
     const SATIETY_DURATION = 600;
@@ -425,7 +598,7 @@
     const ALARM_DECAY = 0.985;
     const ALARM_INHERIT = 0.85;
     const ALARM_THRESHOLD = 0.2;
-    const SPECIES_INITIAL = [60, 60, 60, 5];
+    const SPECIES_INITIAL = [15, 15, 15, 3];
     const EDGE_MARGIN = 90;
 
     let LOOK_AHEAD = 45;
@@ -450,23 +623,44 @@
     const TRAIL_FADE = 0.10;
     const INSPECT_PER_SPECIES = 2;
 
+    const TRAIT_VARIATION = 0.10;
+    const MUTATION_STRENGTH = 0.08;
+    const REPRODUCE_PROB = 0.00005;
+    const SPECIES_POP_CAP = [85, 85, 85, 12];
+    const TRAIT_BOUNDS = {
+      maxSpeed:         [0.5, 6.0],
+      minSpeed:         [0.3, 4.0],
+      alignFactor:      [0.001, 0.2],
+      cohesionFactor:   [0.00001, 0.005],
+      separationFactor: [0.05, 2.0],
+      turnFactor:       [0.02, 0.5],
+      visualRange:      [30, 300],
+      diffSpeciesRange: [10, 200],
+      lookAhead:        [0, 200],
+    };
+    function clampTrait(val, bounds) {
+      return Math.max(bounds[0], Math.min(bounds[1], val));
+    }
+
     let activeTool = null;
     let activeSpecies = 0;
     let inspectOn = false;
     let paused = false;
+    let selectedBoid = null;
     const obstacles = [];
     const mouse = { x: null, y: null, over: false, down: false };
     let lastBrushAt = 0;
 
     const boids = [];
     function spawnBoid(x, y, spread, species) {
-      const p = SPECIES_PARAMS[species];
+      const sp = SPECIES_PARAMS[species];
       const angle = Math.random() * Math.PI * 2;
-      const speed = p.minSpeed + Math.random() * (p.maxSpeed - p.minSpeed);
+      const speed = sp.minSpeed + Math.random() * (sp.maxSpeed - sp.minSpeed);
       const offR = Math.random() * spread;
       const offA = Math.random() * Math.PI * 2;
       const s = SPECIES[species];
       const hue = s.hueMin + Math.random() * (s.hueMax - s.hueMin);
+      const v = (val) => val * (1 + (Math.random() * 2 - 1) * TRAIT_VARIATION);
       boids.push({
         x: x + Math.cos(offA) * offR,
         y: y + Math.sin(offA) * offR,
@@ -478,6 +672,16 @@
         alarm: 0,
         alarmDx: 0,
         alarmDy: 0,
+        descendants: 0,
+        maxSpeed:         clampTrait(v(sp.maxSpeed),         TRAIT_BOUNDS.maxSpeed),
+        minSpeed:         clampTrait(v(sp.minSpeed),         TRAIT_BOUNDS.minSpeed),
+        alignFactor:      clampTrait(v(sp.alignFactor),      TRAIT_BOUNDS.alignFactor),
+        cohesionFactor:   clampTrait(v(sp.cohesionFactor),   TRAIT_BOUNDS.cohesionFactor),
+        separationFactor: clampTrait(v(sp.separationFactor), TRAIT_BOUNDS.separationFactor),
+        turnFactor:       clampTrait(v(sp.turnFactor),       TRAIT_BOUNDS.turnFactor),
+        visualRange:      clampTrait(v(VISUAL_RANGE),        TRAIT_BOUNDS.visualRange),
+        diffSpeciesRange: clampTrait(v(DIFF_SPECIES_RANGE),  TRAIT_BOUNDS.diffSpeciesRange),
+        lookAhead:        clampTrait(v(LOOK_AHEAD),          TRAIT_BOUNDS.lookAhead),
       });
     }
     for (let s = 0; s < SPECIES.length; s++) {
@@ -489,6 +693,33 @@
     function addBoidsAt(x, y, count) {
       const actual = activeSpecies === PREDATOR_SPECIES ? 1 : count;
       for (let i = 0; i < actual; i++) spawnBoid(x, y, ADD_BRUSH_RADIUS, activeSpecies);
+    }
+    function reproduceFrom(parent) {
+      const m = (val, bounds) => clampTrait(val * (1 + (Math.random() * 2 - 1) * MUTATION_STRENGTH), bounds);
+      const offA = Math.random() * Math.PI * 2;
+      const offR = 18;
+      return {
+        x: parent.x + Math.cos(offA) * offR,
+        y: parent.y + Math.sin(offA) * offR,
+        vx: parent.vx,
+        vy: parent.vy,
+        species: parent.species,
+        hue: parent.hue,
+        satiated: 0,
+        alarm: 0,
+        alarmDx: 0,
+        alarmDy: 0,
+        descendants: 0,
+        maxSpeed:         m(parent.maxSpeed,         TRAIT_BOUNDS.maxSpeed),
+        minSpeed:         m(parent.minSpeed,         TRAIT_BOUNDS.minSpeed),
+        alignFactor:      m(parent.alignFactor,      TRAIT_BOUNDS.alignFactor),
+        cohesionFactor:   m(parent.cohesionFactor,   TRAIT_BOUNDS.cohesionFactor),
+        separationFactor: m(parent.separationFactor, TRAIT_BOUNDS.separationFactor),
+        turnFactor:       m(parent.turnFactor,       TRAIT_BOUNDS.turnFactor),
+        visualRange:      m(parent.visualRange,      TRAIT_BOUNDS.visualRange),
+        diffSpeciesRange: m(parent.diffSpeciesRange, TRAIT_BOUNDS.diffSpeciesRange),
+        lookAhead:        m(parent.lookAhead,        TRAIT_BOUNDS.lookAhead),
+      };
     }
     function removeBoidsAt(x, y) {
       const rSq = REMOVE_BRUSH_RADIUS * REMOVE_BRUSH_RADIUS;
@@ -576,6 +807,11 @@
     window.addEventListener('mouseup', () => { mouse.down = false; });
 
     canvas.addEventListener('mousedown', (e) => {
+      if (paused) {
+        const [px, py] = eventToCanvas(e);
+        selectBoidAt(px, py);
+        return;
+      }
       if (!activeTool || activeTool === 'repel') return;
       const [x, y] = eventToCanvas(e);
       if (activeTool === 'circle' || activeTool === 'square' || activeTool === 'triangle') {
@@ -636,26 +872,112 @@
     });
     updateSpeciesPicker();
 
-    const visualRangeSlider = document.getElementById('visual-range');
-    const visualRangeValue = document.getElementById('visual-range-value');
-    visualRangeSlider.addEventListener('input', () => {
-      VISUAL_RANGE = parseInt(visualRangeSlider.value, 10);
-      visualRangeValue.textContent = VISUAL_RANGE;
-    });
+    const selPanel = document.getElementById('selected-boid');
+    const selDot = document.getElementById('sel-dot');
+    const selSpecies = document.getElementById('sel-species');
+    const selState = document.getElementById('sel-state');
+    const selStats = {
+      speed: document.getElementById('sel-speed'),
+      align: document.getElementById('sel-align'),
+      coh:   document.getElementById('sel-coh'),
+      sep:   document.getElementById('sel-sep'),
+      turn:  document.getElementById('sel-turn'),
+      view:  document.getElementById('sel-view'),
+      avoid: document.getElementById('sel-avoid'),
+      look:  document.getElementById('sel-look'),
+      kids:  document.getElementById('sel-kids'),
+    };
+    function clearSelection() {
+      selectedBoid = null;
+      selPanel.classList.remove('visible');
+    }
+    document.getElementById('sel-close').addEventListener('click', clearSelection);
+    function selectBoidAt(x, y) {
+      let nearest = null;
+      let nearestDistSq = 30 * 30;
+      for (const b of boids) {
+        const dx = b.x - x, dy = b.y - y;
+        const dSq = dx * dx + dy * dy;
+        if (dSq < nearestDistSq) { nearestDistSq = dSq; nearest = b; }
+      }
+      selectedBoid = nearest;
+      if (nearest) {
+        updateSelectedBoidPanel();
+        selPanel.classList.add('visible');
+      } else {
+        selPanel.classList.remove('visible');
+      }
+    }
+    function updateSelectedBoidPanel() {
+      if (!selectedBoid) return;
+      const b = selectedBoid;
+      const s = SPECIES[b.species];
+      const p = SPECIES_PARAMS[b.species];
+      selDot.style.background = `hsl(${s.centerHue}, ${SPECIES_SAT[b.species]}%, ${SPECIES_LIGHT[b.species]}%)`;
+      selSpecies.textContent = s.name;
+      let state = '';
+      if (b.species === PREDATOR_SPECIES) {
+        state = b.satiated > 0 ? `fed (${Math.ceil(b.satiated/60)}s)` : 'hunting';
+      } else if (b.alarm > 0.2) {
+        state = `alarmed ${(b.alarm * 100).toFixed(0)}%`;
+      } else {
+        state = 'calm';
+      }
+      selState.textContent = state;
+      selStats.speed.textContent = b.maxSpeed.toFixed(2);
+      selStats.align.textContent = (b.alignFactor * 100).toFixed(1);
+      selStats.coh.textContent   = (b.cohesionFactor * 10000).toFixed(1);
+      selStats.sep.textContent   = b.separationFactor.toFixed(2);
+      selStats.turn.textContent  = b.turnFactor.toFixed(2);
+      selStats.view.textContent  = b.visualRange.toFixed(0);
+      selStats.avoid.textContent = b.diffSpeciesRange.toFixed(0);
+      selStats.look.textContent  = b.lookAhead.toFixed(0);
+      selStats.kids.textContent  = b.descendants;
+    }
 
-    const avoidRangeSlider = document.getElementById('avoid-range');
-    const avoidRangeValue = document.getElementById('avoid-range-value');
-    avoidRangeSlider.addEventListener('input', () => {
-      DIFF_SPECIES_RANGE = parseInt(avoidRangeSlider.value, 10);
-      avoidRangeValue.textContent = DIFF_SPECIES_RANGE;
-    });
-
-    const lookAheadSlider = document.getElementById('look-ahead');
-    const lookAheadValue = document.getElementById('look-ahead-value');
-    lookAheadSlider.addEventListener('input', () => {
-      LOOK_AHEAD = parseInt(lookAheadSlider.value, 10);
-      lookAheadValue.textContent = LOOK_AHEAD;
-    });
+    function updateSpeciesStats() {
+      const sums = [0, 1, 2, 3].map(() => ({
+        maxSpeed: 0, alignFactor: 0, cohesionFactor: 0, separationFactor: 0,
+        turnFactor: 0, visualRange: 0, diffSpeciesRange: 0, lookAhead: 0, count: 0,
+      }));
+      for (const b of boids) {
+        const a = sums[b.species];
+        a.maxSpeed         += b.maxSpeed;
+        a.alignFactor      += b.alignFactor;
+        a.cohesionFactor   += b.cohesionFactor;
+        a.separationFactor += b.separationFactor;
+        a.turnFactor       += b.turnFactor;
+        a.visualRange      += b.visualRange;
+        a.diffSpeciesRange += b.diffSpeciesRange;
+        a.lookAhead        += b.lookAhead;
+        a.count++;
+      }
+      for (let s = 0; s < SPECIES.length; s++) {
+        const a = sums[s];
+        if (a.count === 0) {
+          const p = SPECIES_PARAMS[s];
+          document.getElementById(`ss-${s}-speed`).textContent = p.maxSpeed.toFixed(2);
+          document.getElementById(`ss-${s}-align`).textContent = (p.alignFactor * 100).toFixed(1);
+          document.getElementById(`ss-${s}-coh`).textContent   = (p.cohesionFactor * 10000).toFixed(1);
+          document.getElementById(`ss-${s}-sep`).textContent   = p.separationFactor.toFixed(2);
+          document.getElementById(`ss-${s}-turn`).textContent  = p.turnFactor.toFixed(2);
+          document.getElementById(`ss-${s}-view`).textContent  = VISUAL_RANGE;
+          document.getElementById(`ss-${s}-avoid`).textContent = DIFF_SPECIES_RANGE;
+          document.getElementById(`ss-${s}-look`).textContent  = LOOK_AHEAD;
+          continue;
+        }
+        const c = a.count;
+        document.getElementById(`ss-${s}-speed`).textContent = (a.maxSpeed / c).toFixed(2);
+        document.getElementById(`ss-${s}-align`).textContent = (a.alignFactor / c * 100).toFixed(1);
+        document.getElementById(`ss-${s}-coh`).textContent   = (a.cohesionFactor / c * 10000).toFixed(1);
+        document.getElementById(`ss-${s}-sep`).textContent   = (a.separationFactor / c).toFixed(2);
+        document.getElementById(`ss-${s}-turn`).textContent  = (a.turnFactor / c).toFixed(2);
+        document.getElementById(`ss-${s}-view`).textContent  = (a.visualRange / c).toFixed(0);
+        document.getElementById(`ss-${s}-avoid`).textContent = (a.diffSpeciesRange / c).toFixed(0);
+        document.getElementById(`ss-${s}-look`).textContent  = (a.lookAhead / c).toFixed(0);
+      }
+    }
+    updateSpeciesStats();
 
     const pauseBtn = toolbar.querySelector('button[data-tool="pause"]');
     const iconPause = document.getElementById('icon-pause');
@@ -738,16 +1060,18 @@
       statsEls[2].textContent = counts[2];
       statsEls[3].textContent = counts[3];
       statsEls.fps.textContent = fpsValue;
+      updateSpeciesStats();
     }
 
     function step() {
       const w = viewW(), h = viewH();
-      const visualSq = VISUAL_RANGE * VISUAL_RANGE;
       const protectedSq = PROTECTED_RANGE * PROTECTED_RANGE;
-      const diffSq = DIFF_SPECIES_RANGE * DIFF_SPECIES_RANGE;
-      for (const b of boids) {
-        const p = SPECIES_PARAMS[b.species];
+      const initialLength = boids.length;
+      for (let bi = 0; bi < initialLength; bi++) {
+        const b = boids[bi];
         const isPredator = b.species === PREDATOR_SPECIES;
+        const visualSq = b.visualRange * b.visualRange;
+        const diffSq = b.diffSpeciesRange * b.diffSpeciesRange;
         let closeDx = 0, closeDy = 0;
         let avgVx = 0, avgVy = 0;
         let avgX = 0, avgY = 0;
@@ -794,7 +1118,7 @@
                 }
               } else {
                 const dist = Math.sqrt(distSq) || 0.01;
-                const fleeStrength = VISUAL_RANGE / Math.max(dist, 25);
+                const fleeStrength = b.visualRange / Math.max(dist, 25);
                 fleeX += (dx / dist) * fleeStrength;
                 fleeY += (dy / dist) * fleeStrength;
                 fleeCount++;
@@ -802,7 +1126,7 @@
             }
           } else if (distSq < diffSq) {
             const dist = Math.sqrt(distSq) || 0.01;
-            const falloff = 1 - dist / DIFF_SPECIES_RANGE;
+            const falloff = 1 - dist / b.diffSpeciesRange;
             closeDx += (dx / dist) * falloff * DIFF_SPECIES_FACTOR;
             closeDy += (dy / dist) * falloff * DIFF_SPECIES_FACTOR;
           }
@@ -814,16 +1138,17 @@
           avgX /= neighbors;
           avgY /= neighbors;
           const cohScale = fleeCount > 0 ? 0.25 : 1;
-          b.vx += (avgVx - b.vx) * p.alignFactor + (avgX - b.x) * p.cohesionFactor * cohScale;
-          b.vy += (avgVy - b.vy) * p.alignFactor + (avgY - b.y) * p.cohesionFactor * cohScale;
+          b.vx += (avgVx - b.vx) * b.alignFactor + (avgX - b.x) * b.cohesionFactor * cohScale;
+          b.vy += (avgVy - b.vy) * b.alignFactor + (avgY - b.y) * b.cohesionFactor * cohScale;
         }
-        b.vx += closeDx * p.separationFactor;
-        b.vy += closeDy * p.separationFactor;
+        b.vx += closeDx * b.separationFactor;
+        b.vy += closeDy * b.separationFactor;
 
         if (nearestPreyFound) {
           const dist = Math.sqrt(nearestPreyDistSq) || 0.01;
-          b.vx += (-nearestPreyDx / dist) * PURSUE_FORCE;
-          b.vy += (-nearestPreyDy / dist) * PURSUE_FORCE;
+          const pursueStrength = b.visualRange / Math.max(dist, 25);
+          b.vx += (-nearestPreyDx / dist) * pursueStrength * PURSUE_FORCE;
+          b.vy += (-nearestPreyDy / dist) * pursueStrength * PURSUE_FORCE;
         }
         if (fleeCount > 0) {
           b.vx += fleeX * FLEE_FORCE;
@@ -854,13 +1179,13 @@
             avoidFx += fx;
             avoidFy += fy;
           }
-          if (LOOK_AHEAD > 0) {
+          if (b.lookAhead > 0) {
             const heading = Math.atan2(b.vy, b.vx);
             for (let i = 0; i < ARC_PROBE_COUNT; i++) {
               const t = (i / (ARC_PROBE_COUNT - 1) - 0.5) * 2;
               const angle = heading + t * ARC_HALF_ANGLE_RAD;
-              const px = b.x + Math.cos(angle) * LOOK_AHEAD;
-              const py = b.y + Math.sin(angle) * LOOK_AHEAD;
+              const px = b.x + Math.cos(angle) * b.lookAhead;
+              const py = b.y + Math.sin(angle) * b.lookAhead;
               for (const o of obstacles) {
                 const [fx, fy] = obstacleRepelAt(o, px, py);
                 avoidFx += fx * ARC_PROBE_WEIGHT;
@@ -890,25 +1215,38 @@
           }
         }
 
-        const edgeTurn = (isPredator && nearestPreyFound) ? p.turnFactor * 0.2 : p.turnFactor;
+        const edgeTurn = (isPredator && nearestPreyFound) ? b.turnFactor * 0.2 : b.turnFactor;
         if (b.x < EDGE_MARGIN)         b.vx += edgeTurn;
         if (b.x > w - EDGE_MARGIN)     b.vx -= edgeTurn;
         if (b.y < EDGE_MARGIN)         b.vy += edgeTurn;
         if (b.y > h - EDGE_MARGIN)     b.vy -= edgeTurn;
 
         const speed = Math.hypot(b.vx, b.vy);
-        if (speed > p.maxSpeed) {
-          b.vx = (b.vx / speed) * p.maxSpeed;
-          b.vy = (b.vy / speed) * p.maxSpeed;
-        } else if (speed < p.minSpeed && speed > 0) {
-          b.vx = (b.vx / speed) * p.minSpeed;
-          b.vy = (b.vy / speed) * p.minSpeed;
+        if (speed > b.maxSpeed) {
+          b.vx = (b.vx / speed) * b.maxSpeed;
+          b.vy = (b.vy / speed) * b.maxSpeed;
+        } else if (speed < b.minSpeed && speed > 0) {
+          b.vx = (b.vx / speed) * b.minSpeed;
+          b.vy = (b.vy / speed) * b.minSpeed;
         }
 
         b.x += b.vx;
         b.y += b.vy;
         if (b.satiated > 0) b.satiated--;
       }
+
+      const speciesCounts = [0, 0, 0, 0];
+      for (const b of boids) speciesCounts[b.species]++;
+      const offspring = [];
+      for (const b of boids) {
+        if (b.species === PREDATOR_SPECIES) continue;
+        if (Math.random() >= REPRODUCE_PROB) continue;
+        if (speciesCounts[b.species] >= SPECIES_POP_CAP[b.species]) continue;
+        speciesCounts[b.species]++;
+        offspring.push(reproduceFrom(b));
+        b.descendants++;
+      }
+      if (offspring.length > 0) boids.push(...offspring);
 
       const catchSq = CATCH_RADIUS * CATCH_RADIUS;
       const toRemove = new Set();
@@ -1166,6 +1504,16 @@
       for (const o of obstacles) drawObstacle(o, overlayCtx);
       drawBrushIndicator(overlayCtx);
       if (inspectOn) drawInspectOverlay(overlayCtx);
+
+      if (selectedBoid && !boids.includes(selectedBoid)) clearSelection();
+      if (selectedBoid) {
+        updateSelectedBoidPanel();
+        overlayCtx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+        overlayCtx.lineWidth = 2;
+        overlayCtx.beginPath();
+        overlayCtx.arc(selectedBoid.x, selectedBoid.y, 14, 0, Math.PI * 2);
+        overlayCtx.stroke();
+      }
     }
 
     function loop() {
