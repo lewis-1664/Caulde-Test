@@ -675,6 +675,7 @@
     const INITIAL_ENERGY = 0.70;
     const CHILD_ENERGY = 0.40;
     const FORAGE_FORCE = 0.30;
+    const FORAGE_ENERGY_THRESHOLD = 0.80;  // boids above this ignore food (no path-bending)
     const PACK_RANGE = 80;
     const PACK_BONUS_PER_MATE = 0.4;
     const MATURITY_AGE = 900;
@@ -1408,7 +1409,7 @@
         }
 
         let stuckCirclingFood = false;
-        if (!isPredator && food.length > 0 && b.energy < 1.0) {
+        if (!isPredator && food.length > 0 && b.energy < FORAGE_ENERGY_THRESHOLD) {
           let foodDx = 0, foodDy = 0, foodDistSq = visualSq;
           let nearestFood = null;
           for (const f of food) {
@@ -1812,7 +1813,7 @@
       c.lineWidth = 1.5;
       for (const b of watched) {
         if (b.species === PREDATOR_SPECIES) continue;
-        if (b.energy >= 1.0) continue;
+        if (b.energy >= FORAGE_ENERGY_THRESHOLD) continue;
         const watchedVisualSq = b.visualRange * b.visualRange;
         let nearestFood = null;
         let nearestFoodDistSq = watchedVisualSq;

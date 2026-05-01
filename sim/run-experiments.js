@@ -67,6 +67,7 @@ const DEFAULT_PARAMS = {
   INITIAL_ENERGY: 0.70,
   CHILD_ENERGY: 0.40,
   FORAGE_FORCE: 0.30,
+  FORAGE_ENERGY_THRESHOLD: 0.80,
   PACK_RANGE: 80,
   PACK_BONUS_PER_MATE: 0.4,
   MATURITY_AGE: 900,
@@ -392,7 +393,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
       }
 
       let stuckCirclingFood = false;
-      if (!isPredator && food.length > 0 && b.energy < 1.0) {
+      if (!isPredator && food.length > 0 && b.energy < P.FORAGE_ENERGY_THRESHOLD) {
         let foodDx = 0, foodDy = 0, foodDistSq = visualSq;
         let nearestFood = null;
         for (const f of food) {
@@ -809,5 +810,5 @@ console.log('Natural-selection headless analysis — metabolic cost sweep\n');
 const FRAMES = 21600;
 const RUNS = 25;
 
-runScenario('With stuck-circling brake (no terrain)', RUNS, FRAMES);
-runScenario('With stuck-circling brake (terrain 10)', RUNS, FRAMES, { NUM_OBSTACLES: 10 });
+runScenario('Final defaults — forage threshold 0.80', RUNS, FRAMES);
+runScenario('Final defaults — terrain 10', RUNS, FRAMES, { NUM_OBSTACLES: 10 });
