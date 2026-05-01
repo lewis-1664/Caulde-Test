@@ -9,7 +9,7 @@ mutation, food/energy/starvation, and predator-prey co-evolution.
 ## Repo layout
 
 ```
-index.html              Entire simulation (HTML + CSS + JS, ~1500 lines)
+index.html              Entire simulation (HTML + CSS + JS, ~2200 lines)
 sim/run-experiments.js  Node-runnable headless replica + multi-seed analysis runner
 README.md               This file
 ```
@@ -83,8 +83,8 @@ In `step()`'s per-boid loop, in this order:
 2. **Cross-species avoidance** — only between non-predator/non-predator pairs, within `b.diffSpeciesRange`.
 3. **Predator-prey** — predators do **predictive pursuit**: aim at where the prey will be in `dist / maxSpeed` frames, scaled by the predator's evolved `leadFactor` (default 0.7). Pursue force is also multiplied by a **pack hunting bonus** `1 + packMates × PACK_BONUS_PER_MATE`, where `packMates` is the number of fellow predators within `PACK_RANGE`. Prey flee with distance-scaled strength `b.visualRange / max(dist, 25) × b.fleeFactor`.
 4. **Fear contagion** — prey absorb alarm from same-species neighbors and flee in the inherited direction even when they don't see the predator themselves.
-5. **Foraging (Phase 2)** — prey below full energy steer toward nearest visible food; force scales with hunger `(1 - energy)`.
-6. **Obstacle avoidance** — soft repulsion (SDF gradient × strength); 5-probe forward arc spans `±50°` so lateral obstacles are detected; total capped by `MAX_AVOID_FORCE`.
+5. **Foraging (Phase 2)** — prey below `FORAGE_ENERGY_THRESHOLD` (0.80) consider food. Only food within a `±60°` forward cone (`FORAGE_CONE_COS = 0.5`) is targeted, so a boid that has overshot food can't lock back onto it and orbit. Pull force = `hunger × forageFactor × closeBoost` where `closeBoost` ramps from 1× to 2× as distance shrinks below 30px. A stuck-circling detector (same food, in 12-25px band, low radial speed for 20+ frames) triggers **hard steering** that rotates velocity 35% toward food per frame and waives the minSpeed clamp so the boid can spiral in.
+6. **Obstacle avoidance** — soft repulsion (SDF gradient × strength) with **quadratic distance falloff** (gentle at long range, firm near surface) and **squared heading scale** (force × `cos²(angle to surface)`, so tangent or away-moving boids feel ~zero force). 5-probe forward arc spans `±50°` so lateral obstacles are detected; total capped by `MAX_AVOID_FORCE`.
 7. **Mouse repel** — only if user has the mouse-repel tool active.
 8. **Edge avoidance** — soft `b.turnFactor` push within `EDGE_MARGIN` (reduced 5× for predators with a target locked).
 9. **Speed clamp** — to `[b.minSpeed, b.maxSpeed]`.
@@ -93,10 +93,21 @@ In `step()`'s per-boid loop, in this order:
 12. **Energy drain** + **food eating** (Phase 2). Drain is multiplied by a **metabolic cost** `1 + max(0, maxSpeed - baseline)² × 1.5` where `baseline` is 2.8 for prey, 3.0 for predator — so unbounded speed evolution is self-limiting via energy cost. Drain is also multiplied by an **age factor** ramping from 1× to 2× across the species' aging window (prey: frames 3000–9000, predator: 4000–12000).
 
 After the per-boid loop:
-13. **Reproduction pass** — boids with `energy ≥ REPRODUCE_THRESHOLD` AND `age ≥ MATURITY_AGE` may spawn a mutated child (gated by per-species reproduce probability and `SPECIES_POP_CAP`); reproducing costs `REPRODUCE_COST` energy. Juveniles cannot reproduce.
+13. **Reproduction pass** — boids with `energy ≥ REPRODUCE_THRESHOLD` AND `age ≥ MATURITY_AGE` may spawn a mutated child (gated by per-species reproduce probability and `SPECIES_POP_CAP`); reproducing costs `REPRODUCE_COST` energy. Juveniles cannot reproduce. **Endangered boost**: when a species is down to ≤ `ENDANGERED_THRESHOLD` (2) individuals, their reproduction probability is multiplied by `ENDANGERED_REPRO_BOOST` (5) — prevents bad-luck extinction events where the last solo survivor never gets to breed.
 14. **Predator catch pass** — predators within `CATCH_RADIUS` of any prey eat one (closest), gaining `PREDATOR_CATCH_RESTORE` energy and entering a `SATIETY_DURATION` cooldown.
 15. **Starvation pass** — boids with `energy ≤ 0` are removed.
-16. **Food respawn** — one new dot every `FOOD_RESPAWN_INTERVAL` frames if below `FOOD_INITIAL`.
+16. **Food respawn** — one new dot every `FOOD_RESPAWN_INTERVAL` frames if below `FOOD_INITIAL`. **Food clumping**: food spawns near one of `NUM_FOOD_PATCHES` (10) invisible patch centres rather than uniform random, with each patch having `FOOD_PATCH_RADIUS` (60). Patches regenerate when terrain is randomised. Creates emergent foraging hotspots.
+17. **Heatmap update** — each live boid increments its species' cell in a `HEAT_CELL`-sized (30px) spatial grid; all cells decay by `HEAT_DECAY` (0.999/frame ≈ 12s half-life). Used by the heatmap overlay.
+
+### Rendering pipeline (boid canvas)
+
+Each frame `draw()` does:
+1. Full clear (solid background colour).
+2. **Heatmap** (if `heatmapOn`) — draws a coloured rectangle for each non-empty grid cell, tinted by the species with the highest count there, alpha = `density × HEAT_ALPHA_SCALE` capped at `HEAT_MAX_ALPHA`.
+3. **Per-boid trails** — each boid keeps a ring buffer of `TRAIL_LENGTH` (28) recent positions sampled every `TRAIL_SAMPLE_INTERVAL` (3) frames, covering ~1.4s of motion. Drawn as a fading polyline in species colour with alpha ramping from 0 (oldest) to `TRAIL_MAX_ALPHA` (newest), plus a final segment from the latest sample to the boid's current position.
+4. **Boid bodies** — predator: 4-vertex arrowhead, prey: triangle. Scaled by `ageScale = 0.5 + 0.5 × (age / MATURITY_AGE)` so juveniles render at half size and grow.
+
+The overlay canvas (cleared each frame) draws on top: obstacles, food dots, brush indicator, inspect overlay, selected-boid ring.
 
 ### Inspect overlay (toolbar eye icon)
 
@@ -137,8 +148,17 @@ Metabolic cost:          quadratic-excess  drain × (1 + max(0, maxSpeed - basel
                                            baseline: 2.8 for prey, 3.0 for predator
 FOOD_INITIAL:            150               at start, also the cap
 FOOD_RESPAWN_INTERVAL:   30 frames         (~2 food/sec respawn)
+FOOD_CATCH_RADIUS:       12 px             distance for prey to eat food
 FOOD_RESTORE:            0.30              per food eaten
 PREDATOR_CATCH_RESTORE:  0.60              per prey eaten
+
+FORAGE_ENERGY_THRESHOLD: 0.80              boids ≥ this energy ignore food entirely
+FORAGE_CONE_COS:         0.5               ±60° forward vision cone for foraging targets
+NUM_FOOD_PATCHES:        10                food clusters around N invisible patch centres
+FOOD_PATCH_RADIUS:       60 px             food spawns within this of a patch centre
+
+ENDANGERED_THRESHOLD:    2                 ≤ this many individuals → reproduce 5× faster
+ENDANGERED_REPRO_BOOST:  5                 multiplier when endangered
 
 TRAIT_VARIATION:         0.10              ±10% on spawn
 MUTATION_STRENGTH:       0.08              ±8% per generation
@@ -158,6 +178,16 @@ EDGE_MARGIN:             90 px
 PROTECTED_RANGE:         18                same-species personal space
 DIFF_SPECIES_RANGE:      38                cross-species avoid range
 LOOK_AHEAD:              45                obstacle probe distance (used as default, then per-boid)
+
+TRAIL_LENGTH:            28 samples        per-boid trail length (~1.4s of motion)
+TRAIL_SAMPLE_INTERVAL:   3 frames          trail samples every N frames
+TRAIL_MAX_ALPHA:         0.5               opacity of newest trail segment
+TRAIL_LINE_WIDTH:        2.5 px
+
+HEAT_CELL:               30 px             heatmap grid cell size
+HEAT_DECAY:              0.999/frame       ≈12s half-life, ~30s to fade fully
+HEAT_ALPHA_SCALE:        0.02              density × this = opacity
+HEAT_MAX_ALPHA:          0.55              cap on heatmap cell opacity
 ```
 
 The species-stats panel (bottom-left) displays live **mean** values across each species'
@@ -166,11 +196,12 @@ population, so when you tune you can watch traits drift.
 ## UI tour
 
 - **Canvas**: full viewport. Pause (space or toolbar button) to freeze; click any boid to select it (white ring + top-center stats panel showing its individual traits).
-- **Toolbar (bottom-center)**: pause | obstacle shapes (circle/square/triangle) | add/remove boid brushes | mouse repel | inspect | randomize map | clear obstacles.
-- **Random Map** (jagged-mountains icon): clears current obstacles and generates 3-5 clusters of organic terrain (rocks/blobs/capsules) plus 4-9 isolated features. Stone-gray colored to distinguish from manually-placed pink obstacles.
-- **Stats (bottom-right)**: species color picker (selects target for add/remove brush) → population history graph → per-species counts + FPS.
+- **Toolbar (bottom-center)**: pause | obstacle shapes (circle/square/triangle) | add/remove boid brushes | mouse repel | inspect | randomize map | **heatmap toggle** | clear obstacles.
+- **Random Map** (jagged-mountains icon): clears current obstacles, generates 5-10 organic terrain features (polygon rocks), and regenerates the food patch layout.
+- **Heatmap** (3×3 grid icon): toggles a coloured spatial-density overlay showing where each species spends time over the last ~30 seconds. Each cell tinted by the dominant species there; alpha scales with recent density.
+- **Stats (bottom-right)**: species color picker (selects target for add/remove brush) → population history graph → per-species rows showing **live count / cumulative eaten / cumulative starved** → FPS.
 - **Species traits (bottom-left)**: live trait averages per species; 12 columns: Speed, Align, Coh, Sep, Turn, View, Avoid, Look, Flee, Purs, Forg, Alrm.
-- **Selected boid (top-center, when one is selected)**: that boid's species, state (calm/alarmed/hunting/fed), all 13 trait values + Kids count + Energy %.
+- **Selected boid (top-center, when one is selected)**: that boid's species, state (juvenile/adult/elderly + calm/alarmed/hunting/fed), all 14 trait values + Age (sec) + Kids count + Energy %.
 
 ## Headless analysis runner
 
@@ -233,6 +264,33 @@ behavior.
 - **Boid size scales with juvenile age.** A newborn boid renders at 50% scale and grows
   linearly to full size at `MATURITY_AGE` (frame 900). The selected-boid panel shows a
   lifecycle label (`juvenile`, `adult`, `elderly`) alongside the behavioral state.
+- **Foraging is gated and angle-filtered.** Boids ≥ 80% energy ignore food entirely
+  (no path-bending when full). Below threshold, only food in the ±60° forward cone is
+  targeted — boids that overshoot food can't lock back onto it, so the spiral-orbit
+  pattern is structurally impossible. A stuck-circling detector (same food, in the
+  12-25px orbital band, low radial speed for 20+ frames) triggers hard velocity-vector
+  steering to break any residual orbits.
+- **Smoother obstacle avoidance.** Soft repel uses quadratic distance falloff (gentle
+  far, firm near) with squared heading scale (force ∝ `cos²(angle)`, so tangent-moving
+  or away-moving boids feel near-zero force). Visually this means boids only turn when
+  actually heading at terrain — no more "phantom-sized obstacle" feel.
+- **Food clumps in invisible patches.** Food spawns near one of 10 patch centres rather
+  than uniformly. Headless analysis showed 10 × 60px patches preserve uniform-baseline
+  ecosystem health while still creating visible clustering behaviour. The orbit fix
+  matters more here: dense clusters used to produce comical food-circling.
+- **Endangered-species reproduction boost.** When a species drops to ≤ 2 individuals,
+  reproduction probability is multiplied by 5× until population recovers. Stops the
+  bad-luck extinction events where a solo Crimson would average ~111 seconds before
+  reproducing — long enough to age out and starve. Boost auto-disengages at 3+.
+- **Trails are explicit, not afterimage.** The earlier `TRAIL_FADE` semi-transparent
+  overdraw saturated into a smudgy mixed-species blur. Now each boid keeps a 28-position
+  ring buffer and `draw()` strokes a fading polyline through it — clean per-species
+  trails with controlled length and no canvas saturation.
+- **Heatmap is per-species spatial density with exponential decay.** A 30px-cell grid
+  per species accumulates one increment per live boid per frame; all cells decay 0.999/frame
+  (~12s half-life). Drawn with the dominant species' colour in each cell, alpha scaled
+  by density. Toggleable via toolbar button. Reveals predator hunting circuits, prey
+  foraging hotspots, and dead zones at a glance.
 
 ## Tips for extending
 
@@ -253,6 +311,30 @@ behavior.
   `sim/run-experiments.js`. The runner already supports overriding any constant via
   `runScenario(name, runs, frames, { CONSTANT: value, ... })`. Useful for finding stable
   tunings before applying to the live HTML.
+
+## Current ecosystem performance
+
+Headless characterisation of the shipping defaults (25 runs × 21600 frames = 6 minutes each;
+the 12-minute row uses 15 runs × 43200 frames):
+
+| Scenario | Prey ext (Sky/Sun/Lime, /25) | Crimson ext (/25) | Notes |
+|---|---|---|---|
+| No terrain | 5 / 9 / 8 (22 total / 75) | 11 / 25 | Steady-state — Crimson boom-bust around food patches |
+| Terrain 6 | 10 / 8 / 9 (27 / 75) | 12 / 25 | Light terrain barely changes things |
+| Terrain 10 | 9 / 6 / 13 (28 / 75) | 14 / 25 | Mid-range — terrain occasionally bottlenecks prey |
+| Terrain 14 | 7 / 10 / 10 (27 / 75) | 11 / 25 | Heavy terrain similar to no-terrain |
+| **12-minute run, no terrain** | 5 / 8 / 7 (20 / 45) | **13 / 15** | Predators boom-bust harder over longer runs |
+
+**Selection signal at 6 minutes:** `maxSpeed` is the dominantly selected trait — Pearson
+`r(founder maxSpeed, lineage descendants) ≈ +0.16 to +0.28` for all three prey species,
+and mean trait drifts upward by ~7-10% over a run. Other traits (fleeFactor, leadFactor,
+contagionFactor) show no statistically meaningful selection at this run length.
+
+**Long-run dynamics:** Over 12 minutes, predators are the fragile species — peak averages
+of ~7.5 individuals during the simulation but final means of 0.4 because the boom-bust
+cycle eventually sees them lose the food race after a prey crash they can't survive.
+This is realistic apex-predator behaviour but suggests room for further tuning if you want
+predator stability over longer simulations.
 
 ## Phase 3 (not implemented)
 

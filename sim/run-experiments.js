@@ -858,5 +858,5 @@ console.log('Natural-selection headless analysis — metabolic cost sweep\n');
 const FRAMES = 21600;
 const RUNS = 25;
 
-runScenario('Final: 10 patches × 60', RUNS, FRAMES);
-runScenario('Final + terrain 10', RUNS, FRAMES, { NUM_OBSTACLES: 10 });
+runScenario('Defaults (no terrain)', RUNS, FRAMES);
+runScenario('Defaults + terrain 10', RUNS, FRAMES, { NUM_OBSTACLES: 10 });
