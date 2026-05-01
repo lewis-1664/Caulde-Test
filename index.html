@@ -386,6 +386,10 @@
       <div class="sel-stat"><span class="label">View</span><span class="value" id="sel-view">-</span></div>
       <div class="sel-stat"><span class="label">Avoid</span><span class="value" id="sel-avoid">-</span></div>
       <div class="sel-stat"><span class="label">Look</span><span class="value" id="sel-look">-</span></div>
+      <div class="sel-stat"><span class="label">Flee</span><span class="value" id="sel-flee">-</span></div>
+      <div class="sel-stat"><span class="label">Pursue</span><span class="value" id="sel-pursue">-</span></div>
+      <div class="sel-stat"><span class="label">Forage</span><span class="value" id="sel-forage">-</span></div>
+      <div class="sel-stat"><span class="label">Alarm</span><span class="value" id="sel-contagion">-</span></div>
       <div class="sel-stat"><span class="label">Kids</span><span class="value" id="sel-kids">-</span></div>
       <div class="sel-stat"><span class="label">Energy</span><span class="value" id="sel-energy">-</span></div>
     </div>
@@ -403,6 +407,10 @@
           <th>View</th>
           <th>Avoid</th>
           <th>Look</th>
+          <th>Flee</th>
+          <th>Purs</th>
+          <th>Forg</th>
+          <th>Alrm</th>
         </tr>
       </thead>
       <tbody>
@@ -416,6 +424,10 @@
           <td id="ss-0-view">-</td>
           <td id="ss-0-avoid">-</td>
           <td id="ss-0-look">-</td>
+          <td id="ss-0-flee">-</td>
+          <td id="ss-0-pursue">-</td>
+          <td id="ss-0-forage">-</td>
+          <td id="ss-0-contagion">-</td>
         </tr>
         <tr>
           <td><span class="ss-dot" style="background: hsl(35, 85%, 60%);"></span>Sun</td>
@@ -427,6 +439,10 @@
           <td id="ss-1-view">-</td>
           <td id="ss-1-avoid">-</td>
           <td id="ss-1-look">-</td>
+          <td id="ss-1-flee">-</td>
+          <td id="ss-1-pursue">-</td>
+          <td id="ss-1-forage">-</td>
+          <td id="ss-1-contagion">-</td>
         </tr>
         <tr>
           <td><span class="ss-dot" style="background: hsl(115, 65%, 58%);"></span>Lime</td>
@@ -438,6 +454,10 @@
           <td id="ss-2-view">-</td>
           <td id="ss-2-avoid">-</td>
           <td id="ss-2-look">-</td>
+          <td id="ss-2-flee">-</td>
+          <td id="ss-2-pursue">-</td>
+          <td id="ss-2-forage">-</td>
+          <td id="ss-2-contagion">-</td>
         </tr>
         <tr>
           <td><span class="ss-dot" style="background: hsl(354, 75%, 50%);"></span>Crimson</td>
@@ -449,6 +469,10 @@
           <td id="ss-3-view">-</td>
           <td id="ss-3-avoid">-</td>
           <td id="ss-3-look">-</td>
+          <td id="ss-3-flee">-</td>
+          <td id="ss-3-pursue">-</td>
+          <td id="ss-3-forage">-</td>
+          <td id="ss-3-contagion">-</td>
         </tr>
       </tbody>
     </table>
@@ -653,6 +677,10 @@
       visualRange:      [30, 300],
       diffSpeciesRange: [10, 200],
       lookAhead:        [0, 200],
+      fleeFactor:       [0.02, 0.30],
+      pursueFactor:     [0.02, 0.20],
+      forageFactor:     [0.05, 0.60],
+      contagionFactor:  [0.01, 0.20],
     };
     function clampTrait(val, bounds) {
       return Math.max(bounds[0], Math.min(bounds[1], val));
@@ -699,6 +727,10 @@
         visualRange:      clampTrait(v(VISUAL_RANGE),        TRAIT_BOUNDS.visualRange),
         diffSpeciesRange: clampTrait(v(DIFF_SPECIES_RANGE),  TRAIT_BOUNDS.diffSpeciesRange),
         lookAhead:        clampTrait(v(LOOK_AHEAD),          TRAIT_BOUNDS.lookAhead),
+        fleeFactor:       clampTrait(v(FLEE_FORCE),          TRAIT_BOUNDS.fleeFactor),
+        pursueFactor:     clampTrait(v(PURSUE_FORCE),        TRAIT_BOUNDS.pursueFactor),
+        forageFactor:     clampTrait(v(FORAGE_FORCE),        TRAIT_BOUNDS.forageFactor),
+        contagionFactor:  clampTrait(v(CONTAGION_FORCE),     TRAIT_BOUNDS.contagionFactor),
       });
     }
     for (let s = 0; s < SPECIES.length; s++) {
@@ -747,6 +779,10 @@
         visualRange:      m(parent.visualRange,      TRAIT_BOUNDS.visualRange),
         diffSpeciesRange: m(parent.diffSpeciesRange, TRAIT_BOUNDS.diffSpeciesRange),
         lookAhead:        m(parent.lookAhead,        TRAIT_BOUNDS.lookAhead),
+        fleeFactor:       m(parent.fleeFactor,       TRAIT_BOUNDS.fleeFactor),
+        pursueFactor:     m(parent.pursueFactor,     TRAIT_BOUNDS.pursueFactor),
+        forageFactor:     m(parent.forageFactor,     TRAIT_BOUNDS.forageFactor),
+        contagionFactor:  m(parent.contagionFactor,  TRAIT_BOUNDS.contagionFactor),
       };
     }
     function removeBoidsAt(x, y) {
@@ -913,8 +949,12 @@
       view:  document.getElementById('sel-view'),
       avoid: document.getElementById('sel-avoid'),
       look:  document.getElementById('sel-look'),
-      kids:  document.getElementById('sel-kids'),
-      energy: document.getElementById('sel-energy'),
+      flee:      document.getElementById('sel-flee'),
+      pursue:    document.getElementById('sel-pursue'),
+      forage:    document.getElementById('sel-forage'),
+      contagion: document.getElementById('sel-contagion'),
+      kids:      document.getElementById('sel-kids'),
+      energy:    document.getElementById('sel-energy'),
     };
     function clearSelection() {
       selectedBoid = null;
@@ -961,6 +1001,10 @@
       selStats.view.textContent  = b.visualRange.toFixed(0);
       selStats.avoid.textContent = b.diffSpeciesRange.toFixed(0);
       selStats.look.textContent  = b.lookAhead.toFixed(0);
+      selStats.flee.textContent      = b.fleeFactor.toFixed(2);
+      selStats.pursue.textContent    = b.pursueFactor.toFixed(2);
+      selStats.forage.textContent    = b.forageFactor.toFixed(2);
+      selStats.contagion.textContent = b.contagionFactor.toFixed(2);
       selStats.kids.textContent  = b.descendants;
       selStats.energy.textContent = (b.energy * 100).toFixed(0) + '%';
     }
@@ -968,7 +1012,9 @@
     function updateSpeciesStats() {
       const sums = [0, 1, 2, 3].map(() => ({
         maxSpeed: 0, alignFactor: 0, cohesionFactor: 0, separationFactor: 0,
-        turnFactor: 0, visualRange: 0, diffSpeciesRange: 0, lookAhead: 0, count: 0,
+        turnFactor: 0, visualRange: 0, diffSpeciesRange: 0, lookAhead: 0,
+        fleeFactor: 0, pursueFactor: 0, forageFactor: 0, contagionFactor: 0,
+        count: 0,
       }));
       for (const b of boids) {
         const a = sums[b.species];
@@ -980,31 +1026,43 @@
         a.visualRange      += b.visualRange;
         a.diffSpeciesRange += b.diffSpeciesRange;
         a.lookAhead        += b.lookAhead;
+        a.fleeFactor       += b.fleeFactor;
+        a.pursueFactor     += b.pursueFactor;
+        a.forageFactor     += b.forageFactor;
+        a.contagionFactor  += b.contagionFactor;
         a.count++;
       }
       for (let s = 0; s < SPECIES.length; s++) {
         const a = sums[s];
         if (a.count === 0) {
           const p = SPECIES_PARAMS[s];
-          document.getElementById(`ss-${s}-speed`).textContent = p.maxSpeed.toFixed(2);
-          document.getElementById(`ss-${s}-align`).textContent = (p.alignFactor * 100).toFixed(1);
-          document.getElementById(`ss-${s}-coh`).textContent   = (p.cohesionFactor * 10000).toFixed(1);
-          document.getElementById(`ss-${s}-sep`).textContent   = p.separationFactor.toFixed(2);
-          document.getElementById(`ss-${s}-turn`).textContent  = p.turnFactor.toFixed(2);
-          document.getElementById(`ss-${s}-view`).textContent  = VISUAL_RANGE;
-          document.getElementById(`ss-${s}-avoid`).textContent = DIFF_SPECIES_RANGE;
-          document.getElementById(`ss-${s}-look`).textContent  = LOOK_AHEAD;
+          document.getElementById(`ss-${s}-speed`).textContent  = p.maxSpeed.toFixed(2);
+          document.getElementById(`ss-${s}-align`).textContent  = (p.alignFactor * 100).toFixed(1);
+          document.getElementById(`ss-${s}-coh`).textContent    = (p.cohesionFactor * 10000).toFixed(1);
+          document.getElementById(`ss-${s}-sep`).textContent    = p.separationFactor.toFixed(2);
+          document.getElementById(`ss-${s}-turn`).textContent   = p.turnFactor.toFixed(2);
+          document.getElementById(`ss-${s}-view`).textContent   = VISUAL_RANGE;
+          document.getElementById(`ss-${s}-avoid`).textContent  = DIFF_SPECIES_RANGE;
+          document.getElementById(`ss-${s}-look`).textContent   = LOOK_AHEAD;
+          document.getElementById(`ss-${s}-flee`).textContent     = FLEE_FORCE.toFixed(2);
+          document.getElementById(`ss-${s}-pursue`).textContent   = PURSUE_FORCE.toFixed(2);
+          document.getElementById(`ss-${s}-forage`).textContent   = FORAGE_FORCE.toFixed(2);
+          document.getElementById(`ss-${s}-contagion`).textContent= CONTAGION_FORCE.toFixed(2);
           continue;
         }
         const c = a.count;
-        document.getElementById(`ss-${s}-speed`).textContent = (a.maxSpeed / c).toFixed(2);
-        document.getElementById(`ss-${s}-align`).textContent = (a.alignFactor / c * 100).toFixed(1);
-        document.getElementById(`ss-${s}-coh`).textContent   = (a.cohesionFactor / c * 10000).toFixed(1);
-        document.getElementById(`ss-${s}-sep`).textContent   = (a.separationFactor / c).toFixed(2);
-        document.getElementById(`ss-${s}-turn`).textContent  = (a.turnFactor / c).toFixed(2);
-        document.getElementById(`ss-${s}-view`).textContent  = (a.visualRange / c).toFixed(0);
-        document.getElementById(`ss-${s}-avoid`).textContent = (a.diffSpeciesRange / c).toFixed(0);
-        document.getElementById(`ss-${s}-look`).textContent  = (a.lookAhead / c).toFixed(0);
+        document.getElementById(`ss-${s}-speed`).textContent  = (a.maxSpeed / c).toFixed(2);
+        document.getElementById(`ss-${s}-align`).textContent  = (a.alignFactor / c * 100).toFixed(1);
+        document.getElementById(`ss-${s}-coh`).textContent    = (a.cohesionFactor / c * 10000).toFixed(1);
+        document.getElementById(`ss-${s}-sep`).textContent    = (a.separationFactor / c).toFixed(2);
+        document.getElementById(`ss-${s}-turn`).textContent   = (a.turnFactor / c).toFixed(2);
+        document.getElementById(`ss-${s}-view`).textContent   = (a.visualRange / c).toFixed(0);
+        document.getElementById(`ss-${s}-avoid`).textContent  = (a.diffSpeciesRange / c).toFixed(0);
+        document.getElementById(`ss-${s}-look`).textContent   = (a.lookAhead / c).toFixed(0);
+        document.getElementById(`ss-${s}-flee`).textContent     = (a.fleeFactor / c).toFixed(2);
+        document.getElementById(`ss-${s}-pursue`).textContent   = (a.pursueFactor / c).toFixed(2);
+        document.getElementById(`ss-${s}-forage`).textContent   = (a.forageFactor / c).toFixed(2);
+        document.getElementById(`ss-${s}-contagion`).textContent= (a.contagionFactor / c).toFixed(2);
       }
     }
     updateSpeciesStats();
@@ -1177,12 +1235,12 @@
         if (nearestPreyFound) {
           const dist = Math.sqrt(nearestPreyDistSq) || 0.01;
           const pursueStrength = b.visualRange / Math.max(dist, 25);
-          b.vx += (-nearestPreyDx / dist) * pursueStrength * PURSUE_FORCE;
-          b.vy += (-nearestPreyDy / dist) * pursueStrength * PURSUE_FORCE;
+          b.vx += (-nearestPreyDx / dist) * pursueStrength * b.pursueFactor;
+          b.vy += (-nearestPreyDy / dist) * pursueStrength * b.pursueFactor;
         }
         if (fleeCount > 0) {
-          b.vx += fleeX * FLEE_FORCE;
-          b.vy += fleeY * FLEE_FORCE;
+          b.vx += fleeX * b.fleeFactor;
+          b.vy += fleeY * b.fleeFactor;
         }
 
         if (fleeCount > 0) {
@@ -1198,8 +1256,8 @@
           b.alarm *= ALARM_DECAY;
         }
         if (fleeCount === 0 && b.alarm > ALARM_THRESHOLD) {
-          b.vx += b.alarmDx * b.alarm * CONTAGION_FORCE;
-          b.vy += b.alarmDy * b.alarm * CONTAGION_FORCE;
+          b.vx += b.alarmDx * b.alarm * b.contagionFactor;
+          b.vy += b.alarmDy * b.alarm * b.contagionFactor;
         }
 
         if (!isPredator && food.length > 0 && b.energy < 1.0) {
@@ -1213,7 +1271,7 @@
           if (foundFood) {
             const dist = Math.sqrt(foodDistSq) || 0.01;
             const hunger = Math.max(0, 1 - b.energy);
-            const forage = hunger * FORAGE_FORCE;
+            const forage = hunger * b.forageFactor;
             b.vx += (-foodDx / dist) * forage;
             b.vy += (-foodDy / dist) * forage;
           }
@@ -1301,7 +1359,10 @@
           }
         }
         if (b.satiated > 0) b.satiated--;
-        b.energy -= isPredator ? PREDATOR_ENERGY_DRAIN : PREY_ENERGY_DRAIN;
+        const baseSpeed = isPredator ? 3.0 : 2.8;
+        const excess = Math.max(0, b.maxSpeed - baseSpeed);
+        const speedFactor = 1 + excess * excess * 1.5;
+        b.energy -= (isPredator ? PREDATOR_ENERGY_DRAIN : PREY_ENERGY_DRAIN) * speedFactor;
         if (!isPredator && food.length > 0) {
           const eatSq = FOOD_CATCH_RADIUS * FOOD_CATCH_RADIUS;
           for (let fi = food.length - 1; fi >= 0; fi--) {

@@ -63,6 +63,8 @@ const DEFAULT_PARAMS = {
   INITIAL_ENERGY: 0.70,
   CHILD_ENERGY: 0.40,
   FORAGE_FORCE: 0.30,
+  METABOLIC_MODE: 'quadratic-excess',
+  METABOLIC_PARAM: 1.5,
 
   TRAIT_BOUNDS: {
     maxSpeed:         [0.5, 6.0],
@@ -74,10 +76,14 @@ const DEFAULT_PARAMS = {
     visualRange:      [30, 300],
     diffSpeciesRange: [10, 200],
     lookAhead:        [0, 200],
+    fleeFactor:       [0.02, 0.30],
+    pursueFactor:     [0.02, 0.20],
+    forageFactor:     [0.05, 0.60],
+    contagionFactor:  [0.01, 0.20],
   },
 };
 
-const TRAIT_KEYS = ['maxSpeed', 'minSpeed', 'alignFactor', 'cohesionFactor', 'separationFactor', 'turnFactor', 'visualRange', 'diffSpeciesRange', 'lookAhead'];
+const TRAIT_KEYS = ['maxSpeed', 'minSpeed', 'alignFactor', 'cohesionFactor', 'separationFactor', 'turnFactor', 'visualRange', 'diffSpeciesRange', 'lookAhead', 'fleeFactor', 'pursueFactor', 'forageFactor', 'contagionFactor'];
 
 function mulberry32(seed) {
   let s = seed >>> 0;
@@ -176,6 +182,10 @@ function runSimulation(seed, frames, overrideParams = {}) {
       visualRange:      clampTrait(v(P.VISUAL_RANGE),      P.TRAIT_BOUNDS.visualRange),
       diffSpeciesRange: clampTrait(v(P.DIFF_SPECIES_RANGE),P.TRAIT_BOUNDS.diffSpeciesRange),
       lookAhead:        clampTrait(v(P.LOOK_AHEAD),        P.TRAIT_BOUNDS.lookAhead),
+      fleeFactor:       clampTrait(v(P.FLEE_FORCE),        P.TRAIT_BOUNDS.fleeFactor),
+      pursueFactor:     clampTrait(v(P.PURSUE_FORCE),      P.TRAIT_BOUNDS.pursueFactor),
+      forageFactor:     clampTrait(v(P.FORAGE_FORCE),      P.TRAIT_BOUNDS.forageFactor),
+      contagionFactor:  clampTrait(v(P.CONTAGION_FORCE),   P.TRAIT_BOUNDS.contagionFactor),
     };
     // Snapshot initial trait values for selection analysis
     b.initialTraits = {};
@@ -212,6 +222,10 @@ function runSimulation(seed, frames, overrideParams = {}) {
       visualRange:      m(parent.visualRange,      P.TRAIT_BOUNDS.visualRange),
       diffSpeciesRange: m(parent.diffSpeciesRange, P.TRAIT_BOUNDS.diffSpeciesRange),
       lookAhead:        m(parent.lookAhead,        P.TRAIT_BOUNDS.lookAhead),
+      fleeFactor:       m(parent.fleeFactor,       P.TRAIT_BOUNDS.fleeFactor),
+      pursueFactor:     m(parent.pursueFactor,     P.TRAIT_BOUNDS.pursueFactor),
+      forageFactor:     m(parent.forageFactor,     P.TRAIT_BOUNDS.forageFactor),
+      contagionFactor:  m(parent.contagionFactor,  P.TRAIT_BOUNDS.contagionFactor),
     };
     b.initialTraits = {};
     for (const k of TRAIT_KEYS) b.initialTraits[k] = b[k];
@@ -312,12 +326,12 @@ function runSimulation(seed, frames, overrideParams = {}) {
       if (nearestPreyFound) {
         const dist = Math.sqrt(nearestPreyDistSq) || 0.01;
         const pursueStrength = b.visualRange / Math.max(dist, 25);
-        b.vx += (-nearestPreyDx / dist) * pursueStrength * P.PURSUE_FORCE;
-        b.vy += (-nearestPreyDy / dist) * pursueStrength * P.PURSUE_FORCE;
+        b.vx += (-nearestPreyDx / dist) * pursueStrength * b.pursueFactor;
+        b.vy += (-nearestPreyDy / dist) * pursueStrength * b.pursueFactor;
       }
       if (fleeCount > 0) {
-        b.vx += fleeX * P.FLEE_FORCE;
-        b.vy += fleeY * P.FLEE_FORCE;
+        b.vx += fleeX * b.fleeFactor;
+        b.vy += fleeY * b.fleeFactor;
       }
 
       if (fleeCount > 0) {
@@ -333,8 +347,8 @@ function runSimulation(seed, frames, overrideParams = {}) {
         b.alarm *= P.ALARM_DECAY;
       }
       if (fleeCount === 0 && b.alarm > P.ALARM_THRESHOLD) {
-        b.vx += b.alarmDx * b.alarm * P.CONTAGION_FORCE;
-        b.vy += b.alarmDy * b.alarm * P.CONTAGION_FORCE;
+        b.vx += b.alarmDx * b.alarm * b.contagionFactor;
+        b.vy += b.alarmDy * b.alarm * b.contagionFactor;
       }
 
       if (!isPredator && food.length > 0 && b.energy < 1.0) {
@@ -348,7 +362,7 @@ function runSimulation(seed, frames, overrideParams = {}) {
         if (foundFood) {
           const dist = Math.sqrt(foodDistSq) || 0.01;
           const hunger = Math.max(0, 1 - b.energy);
-          const forage = hunger * P.FORAGE_FORCE;
+          const forage = hunger * b.forageFactor;
           b.vx += (-foodDx / dist) * forage;
           b.vy += (-foodDy / dist) * forage;
         }
@@ -424,7 +438,18 @@ function runSimulation(seed, frames, overrideParams = {}) {
         }
       }
       if (b.satiated > 0) b.satiated--;
-      b.energy -= isPredator ? P.PREDATOR_ENERGY_DRAIN : P.PREY_ENERGY_DRAIN;
+      const baseSpeed = isPredator ? 3.0 : 2.8;
+      let speedFactor = 1.0;
+      if (P.METABOLIC_MODE === 'power') {
+        speedFactor = Math.pow(b.maxSpeed / baseSpeed, P.METABOLIC_PARAM);
+      } else if (P.METABOLIC_MODE === 'linear-excess') {
+        const excess = Math.max(0, b.maxSpeed - baseSpeed);
+        speedFactor = 1 + excess * P.METABOLIC_PARAM;
+      } else if (P.METABOLIC_MODE === 'quadratic-excess') {
+        const excess = Math.max(0, b.maxSpeed - baseSpeed);
+        speedFactor = 1 + excess * excess * P.METABOLIC_PARAM;
+      }
+      b.energy -= (isPredator ? P.PREDATOR_ENERGY_DRAIN : P.PREY_ENERGY_DRAIN) * speedFactor;
       if (!isPredator && food.length > 0) {
         const eatSq = P.FOOD_CATCH_RADIUS * P.FOOD_CATCH_RADIUS;
         for (let fi = food.length - 1; fi >= 0; fi--) {
@@ -638,7 +663,10 @@ function runScenario(label, runs, frames, overrides = {}) {
       } else {
         const sm = meanStdev(starts);
         const em = meanStdev(ends);
-        const dp = (k === 'cohesionFactor') ? 5 : (k === 'alignFactor' || k === 'turnFactor') ? 3 : (k === 'separationFactor' || k === 'maxSpeed' || k === 'minSpeed') ? 2 : 1;
+        const dp = (k === 'cohesionFactor') ? 5
+                 : (k === 'alignFactor' || k === 'turnFactor' || k === 'fleeFactor' || k === 'pursueFactor' || k === 'forageFactor' || k === 'contagionFactor') ? 3
+                 : (k === 'separationFactor' || k === 'maxSpeed' || k === 'minSpeed') ? 2
+                 : 1;
         const cell = `${fmt(sm.mean, dp)} → ${fmt(em.mean, dp)}`;
         row += pad(cell, 22);
       }
@@ -692,30 +720,13 @@ function runScenario(label, runs, frames, overrides = {}) {
 
 // ===== Main =====
 
-const RUNS = 50;
-const FRAMES = 1800; // 30s at 60fps
+console.log('Natural-selection headless analysis — metabolic cost sweep\n');
 
-console.log('Phase 1 — natural-selection headless analysis');
-console.log(`Defaults: ${RUNS} runs × ${FRAMES} frames each (${(FRAMES/60).toFixed(0)}s sim time)\n`);
+// 6-min runs to compare against earlier baseline
+const FRAMES = 21600;
+const RUNS = 25;
 
-const slowerPredatorParams = [
-  { maxSpeed: 2.8, minSpeed: 1.4, alignFactor: 0.030, cohesionFactor: 0.0005,  separationFactor: 0.50, turnFactor: 0.15 },
-  { maxSpeed: 2.8, minSpeed: 1.4, alignFactor: 0.030, cohesionFactor: 0.0005,  separationFactor: 0.50, turnFactor: 0.15 },
-  { maxSpeed: 2.8, minSpeed: 1.4, alignFactor: 0.030, cohesionFactor: 0.0005,  separationFactor: 0.50, turnFactor: 0.15 },
-  { maxSpeed: 2.4, minSpeed: 1.2, alignFactor: 0.020, cohesionFactor: 0.00010, separationFactor: 0.50, turnFactor: 0.20 },
-];
-
-const LONG_FRAMES = 21600; // 6 minutes
-const LONG_RUNS = 25;
-
-// 1. Open environment, faster predator (baseline reference)
-runScenario('OPEN + FASTER PREDATOR (baseline)', LONG_RUNS, LONG_FRAMES);
-
-// 2. With obstacles, faster predator — does vision matter more?
-runScenario('OBSTACLES + FASTER PREDATOR', LONG_RUNS, LONG_FRAMES, { NUM_OBSTACLES: 14 });
-
-// 3. Open, slower predator (max 2.4 < prey 2.8) — speed less useful, vision should rise?
-runScenario('OPEN + SLOWER PREDATOR', LONG_RUNS, LONG_FRAMES, { SPECIES_PARAMS: slowerPredatorParams });
-
-// 4. Both — slower predator + obstacles
-runScenario('OBSTACLES + SLOWER PREDATOR', LONG_RUNS, LONG_FRAMES, { NUM_OBSTACLES: 14, SPECIES_PARAMS: slowerPredatorParams });
+runScenario('Phase 2 + behavioral traits + metabolic 1.5 (current default)', RUNS, FRAMES);
+runScenario('Without metabolic cost', RUNS, FRAMES, { METABOLIC_MODE: 'none' });
+runScenario('With more prey (25 each)', RUNS, FRAMES, { SPECIES_INITIAL: [25, 25, 25, 3] });
+runScenario('Less trait variation (5%)', RUNS, FRAMES, { TRAIT_VARIATION: 0.05 });
