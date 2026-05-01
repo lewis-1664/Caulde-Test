@@ -1,10 +1,10 @@
-# Caulde-Test — Flocking & Natural Selection Simulation
+# Evolving Flocks — Flocking & Natural Selection Simulation
 
 An interactive boids simulation in a single HTML file, deployed via GitHub Pages.
 The `natural-selection` branch extends it with per-boid genetic variation, reproduction,
 mutation, food/energy/starvation, and predator-prey co-evolution.
 
-**Live site:** https://lewis-1664.github.io/Caulde-Test/ (serves the `gh-pages` branch).
+**Live site:** https://lewis-1664.github.io/evolving-flocks/ (serves the `gh-pages` branch).
 
 ## Repo layout
 
