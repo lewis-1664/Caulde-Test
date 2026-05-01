@@ -69,6 +69,8 @@ const DEFAULT_PARAMS = {
   FORAGE_FORCE: 0.30,
   FORAGE_ENERGY_THRESHOLD: 0.80,
   FORAGE_CONE_COS: 0.5,
+  ENDANGERED_THRESHOLD: 2,
+  ENDANGERED_REPRO_BOOST: 5,
   PACK_RANGE: 80,
   PACK_BONUS_PER_MATE: 0.4,
   MATURITY_AGE: 900,
@@ -556,9 +558,11 @@ function runSimulation(seed, frames, overrideParams = {}) {
       const matAge = isPredatorB ? (P.PREDATOR_MATURITY_AGE ?? P.MATURITY_AGE) : P.MATURITY_AGE;
       if (b.age < matAge) continue;
       if (b.energy < P.REPRODUCE_THRESHOLD) continue;
-      const reprodProb = isPredatorB
+      const baseProb = isPredatorB
         ? (P.PREDATOR_REPRODUCE_PROB ?? P.REPRODUCE_PROB)
         : (P.PREY_REPRODUCE_PROB ?? P.REPRODUCE_PROB);
+      const endangered = speciesCounts[b.species] <= P.ENDANGERED_THRESHOLD;
+      const reprodProb = endangered ? baseProb * P.ENDANGERED_REPRO_BOOST : baseProb;
       if (rand() >= reprodProb) continue;
       if (speciesCounts[b.species] >= P.SPECIES_POP_CAP[b.species]) continue;
       speciesCounts[b.species]++;
@@ -819,5 +823,5 @@ console.log('Natural-selection headless analysis — metabolic cost sweep\n');
 const FRAMES = 21600;
 const RUNS = 25;
 
-runScenario('Final defaults — ±60° forage cone', RUNS, FRAMES);
+runScenario('Final defaults — endangered boost on', RUNS, FRAMES);
 runScenario('Final defaults — terrain 10', RUNS, FRAMES, { NUM_OBSTACLES: 10 });

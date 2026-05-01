@@ -702,6 +702,11 @@
     const PREY_REPRODUCE_PROB = 0.00020;
     const PREDATOR_REPRODUCE_PROB = 0.00015;
     const SPECIES_POP_CAP = [85, 85, 85, 12];
+    // When a species is down to <= ENDANGERED_THRESHOLD individuals, multiply
+    // their reproduction probability by ENDANGERED_REPRO_BOOST. Stops bad-luck
+    // extinction events where a solo survivor never gets to reproduce before dying.
+    const ENDANGERED_THRESHOLD = 2;
+    const ENDANGERED_REPRO_BOOST = 5;
 
     // Phase 2 — food + energy + starvation
     const FOOD_INITIAL = 150;
@@ -1637,7 +1642,9 @@
       for (const b of boids) {
         if (b.age < MATURITY_AGE) continue;
         if (b.energy < REPRODUCE_THRESHOLD) continue;
-        const reprodProb = b.species === PREDATOR_SPECIES ? PREDATOR_REPRODUCE_PROB : PREY_REPRODUCE_PROB;
+        const baseProb = b.species === PREDATOR_SPECIES ? PREDATOR_REPRODUCE_PROB : PREY_REPRODUCE_PROB;
+        const endangered = speciesCounts[b.species] <= ENDANGERED_THRESHOLD;
+        const reprodProb = endangered ? baseProb * ENDANGERED_REPRO_BOOST : baseProb;
         if (Math.random() >= reprodProb) continue;
         if (speciesCounts[b.species] >= SPECIES_POP_CAP[b.species]) continue;
         speciesCounts[b.species]++;
